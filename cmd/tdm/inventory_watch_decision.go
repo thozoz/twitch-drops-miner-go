@@ -71,7 +71,7 @@ var inventoryWatchDecisionCmd = &cobra.Command{
 
 		eligible, unlinked := inventory.SplitEligible(campaigns)
 		for _, u := range unlinked {
-			logger.Warn("campaign unlinked, skipped: run the link URL to enable it",
+			logger.Debug("campaign unlinked, skipped: run the link URL to enable it",
 				"game", u.Game.Name,
 				"link_url", u.LinkURL,
 			)
