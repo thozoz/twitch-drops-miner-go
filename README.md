@@ -1,24 +1,34 @@
-# tdm — Twitch Drops Miner (Go, Headless-First)
+# Twitch Drops Miner (Go)
 
-`tdm` is a lightweight, headless-first reimplementation of [DevilXD/TwitchDropsMiner](https://github.com/DevilXD/TwitchDropsMiner) written in pure Go.
+This application allows you to AFK mine timed Twitch drops without having to worry about switching channels when the one you were watching goes offline, claiming the drops, or receiving any stream data itself. This helps you save on bandwidth and hassle.
 
-Designed specifically for headless Linux servers, home labs, Docker containers, and NAS devices. It monitors Twitch Drop campaigns, selects the highest-priority live channel, simulates stream presence without downloading video or audio bandwidth, tracks real-time progress via PubSub WebSockets, and automatically claims drops to your Twitch inventory.
-
----
-
-## 🌟 Key Features
-
-- **🚀 Headless-First Daemon:** Runs in the background as a true detached daemon (`tdm start` / `tdm stop`) with zero GUI, browser, or X11 dependencies.
-- **⚡ Zero Video Bandwidth:** Simulates legitimate viewer watch presence using Twitch Spade minute beacons (~59s cadence). **0 KB of video/HLS stream downloaded** — runs happily on minimal bandwidth.
-- **🔄 Dual Progress Engine:** Subscribes to real-time Twitch PubSub WebSocket events (`user-drop-events.<user_id>`) for instant drop updates, backed by periodic GQL reconciliation.
-- **🔌 Local IPC Control Plane:** Fast JSON-RPC 2.0 control plane over a `0600` Unix domain socket (or Windows named pipe). Monitor status, change game priorities on the fly, and stream logs without restarting.
-- **🔑 Headless OAuth Device Code Flow:** Authenticate seamlessly from any remote SSH session via `https://www.twitch.tv/activate`.
-- **🛡️ Atomic State & Stale-Socket Recovery:** Persists runtime progress to `state.json` atomically. Detects stale sockets from killed processes and rejects duplicate concurrent daemons to prevent double-beacon account risks.
-- **📦 Single Static Binary:** Pure Go with `CGO_ENABLED=0` (<15 MB static ELF/PE binary). Native cross-compilation for Linux (`amd64`, `arm64`), macOS, and Windows.
+This repository is a lightweight, headless-first reimplementation of [DevilXD/TwitchDropsMiner](https://github.com/DevilXD/TwitchDropsMiner) written from scratch in Go.
 
 ---
 
-## 🏗️ Architecture
+### How It Works:
+
+Every ~59 seconds, the application simulates watch presence for a selected stream by sending lightweight Spade tracking beacons and fetching drop metadata. This is sufficient to advance drop progression on Twitch servers while completely bypassing the need to download video or audio stream data (0 KB of video downloaded).
+
+To keep channel states up-to-date and detect drop completions instantly, a WebSocket connection to Twitch PubSub is maintained (`user-drop-events.<user_id>`), backed by periodic GraphQL reconciliation.
+
+---
+
+### Features:
+
+- **Stream-less drop mining:** Zero video or audio data downloaded, saving network bandwidth and CPU resources.
+- **Headless background daemon:** Runs as a detached background process (`tdm start` / `tdm stop`) with no GUI, display server, or browser dependencies.
+- **Dual progress engine:** Subscribes to real-time Twitch PubSub WebSocket events for immediate drop progression and auto-claiming, backed by periodic GQL reconciliation.
+- **Game priority and exclusion lists:** Configure which games to mine and in what order. Modify priorities dynamically while the daemon is actively running.
+- **Local IPC control plane:** Fast JSON-RPC 2.0 interface over a secure Unix domain socket (`0600` permissions on Linux/macOS) or Named Pipe (Windows).
+- **Headless OAuth login:** Authenticate easily from remote SSH sessions via Twitch OAuth Device Code Flow (`https://www.twitch.tv/activate`).
+- **Atomic state persistence:** Saves runtime progress atomically to `state.json` to safely resume sessions across restarts.
+- **Double-start prevention:** Rejects duplicate daemon instances to prevent concurrent beacon emissions on the same account.
+- **Single static binary:** Pure Go with `CGO_ENABLED=0` (<15 MB binary size) with cross-platform support for Linux (`amd64`, `arm64`), macOS, and Windows.
+
+---
+
+### Architecture:
 
 ```
                     ┌──────────────────────────────────────────────────┐
@@ -52,247 +62,142 @@ Designed specifically for headless Linux servers, home labs, Docker containers, 
 
 ---
 
-## 📦 Installation & Build
+### Quick Start:
 
-Requires **Go 1.26+**:
+#### 1. Build from source (requires Go 1.26+):
 
 ```bash
-# Clone the repository
 git clone https://github.com/thozoz/twitch-drops-miner-go.git
 cd twitch-drops-miner-go
-
-# Build host binary
 go build -o tdm ./cmd/tdm
-
-# Or cross-compile static binaries using Makefile
-make build-linux-amd64
-make build-linux-arm64
 ```
 
----
-
-## 🚀 Quick Start
+#### 2. Log in to your Twitch account:
 
 ```bash
-# 1. Authenticate via Device Code Flow
 ./tdm auth login
+```
+Follow the on-screen link (`https://www.twitch.tv/activate?device-code=...`) to authorize `tdm` with your Twitch account.
 
-# 2. Start background mining daemon
+#### 3. Start mining:
+
+```bash
+# Start background daemon
 ./tdm start
 
-# 3. Check live status & progress
+# View live progress and active drop
 ./tdm status
 
-# 4. Stream daemon logs in real-time
+# Follow logs in real-time
 ./tdm logs -f
 
-# 5. Add games to priority list dynamically
-./tdm priority add "Rust" "World of Warcraft"
-
-# 6. Stop daemon when finished
+# Stop the daemon when finished
 ./tdm stop
 ```
 
 ---
 
-## 📖 Complete CLI Command Reference
+### Command Line Interface:
 
-### 1. Daemon & Mining Management
+#### Daemon & Mining Commands
 
-#### `tdm start`
-Starts the mining supervisor as a detached background daemon. Performs a fast socket health check and prints the assigned PID. If a daemon is already running, it rejects execution immediately (DMN-08).
+| Command | Description |
+|---|---|
+| `tdm start` | Starts the mining daemon in the background as a detached process. |
+| `tdm stop` | Gracefully stops the running background daemon over the IPC socket. |
+| `tdm status` | Shows current operational status, channel, active drop, progress, and ETA. |
+| `tdm logs` | Displays recent logs from memory buffer (`-f` to stream live). |
+| `tdm priority` | Manages game priority list (`list`, `add <games...>`, `set <games...>`). |
+| `tdm run` | Runs the mining supervisor in the foreground (useful for systemd / Docker). |
+| `tdm mine` | Runs a single one-shot mining session and exits upon completion. |
+
+##### `tdm start`
 ```bash
 ./tdm start
-# Output: tdm daemon started (PID 12345)
 
 # Flags:
-#   --config <path>      Path to custom configuration file
-#   --log-file <path>    Path to rotating log file (default: $XDG_STATE_HOME/tdm/miner.log)
+#   --config <path>      Path to custom config file
+#   --log-file <path>    Path to rotating log file
 #   --log-level <level>  Log level (debug, info, warn, error)
 #   --log-format <fmt>   Log format (text, json)
 ```
 
-#### `tdm stop`
-Gracefully halts the running mining daemon over the IPC socket. Flushes pending state, closes listeners, and unbinds the socket/named pipe.
+##### `tdm stop`
 ```bash
 ./tdm stop
-# Output: tdm daemon stopped
 
 # Flags:
-#   --timeout <sec>      Timeout in seconds to wait for graceful shutdown (default: 15)
+#   --timeout <sec>      Timeout in seconds for graceful shutdown (default: 15)
 ```
 
-#### `tdm status`
-Queries the running daemon over the local socket and displays live operational status, active campaign, channel, drop progress percentage, remaining ETA, and error count.
+##### `tdm status`
 ```bash
 ./tdm status
-# Output:
-# Status: watching
-# Campaign: Rust Charity '26 (Rust)
-# Channel: streamer_name
-# Drop: Rust Hoodie (45/60 min, 75.0%)
-# ETA: 15m0s
-# Errors: 0
-# Uptime: 42m10s
 
-# Output structured JSON (useful for monitoring scripts / jq):
+# JSON output for monitoring / scripts:
 ./tdm status --json
 ```
 
-#### `tdm logs`
-Retrieves recent log entries from the daemon's in-memory 1000-line ring buffer or opens a real-time log stream over the IPC socket.
+##### `tdm logs`
 ```bash
-# View last 50 log lines:
+# View last 50 lines:
 ./tdm logs
 
-# View last 100 log lines:
-./tdm logs -n 100
-
-# Stream logs live (equivalent to tail -f, immune to log rotation line drops):
+# Follow logs live (tail -f):
 ./tdm logs -f
 ```
 
-#### `tdm priority`
-Inspects and modifies the daemon's priority game list dynamically. Priority mutations apply immediately at the next campaign selection boundary without interrupting an active stream watch session (DMN-06).
+##### `tdm priority`
 ```bash
-# List active priority games in order:
+# View current priority list:
 ./tdm priority list
 
-# Add games to the priority list (preserves existing list):
+# Add games to priority list:
 ./tdm priority add "Rust" "World of Warcraft"
 
-# Overwrite priority list with a new order:
-./tdm priority set "Fortnite" "Rust" "Overwatch"
-```
-
-#### `tdm run`
-Runs the mining supervisor continuously in the foreground (interactive mode). Useful for systemd services, Docker containers, or direct terminal debugging.
-```bash
-./tdm run
-# (Press Ctrl+C to initiate bounded graceful shutdown)
-
-# Flags:
-#   --daemon-mode        Suppresses interactive startup banner
-```
-
-#### `tdm mine`
-Runs a single, one-shot mining session: selects the best available campaign, resolves a live channel, watches and claims drops to completion, and exits.
-```bash
-./tdm mine
-
-# Flags:
-#   --no-pubsub          Disables PubSub WebSocket and relies solely on GQL reconciliation
+# Overwrite priority list:
+./tdm priority set "Special Events" "Fortnite" "Rust"
 ```
 
 ---
 
-### 2. Authentication (`tdm auth`)
+#### Authentication Commands (`tdm auth`)
 
-#### `tdm auth login`
-Initiates Twitch OAuth Device Code Flow authorization. Prints the verification URI and user code. Polls until authorization completes and stores credentials securely in `auth.json` with `0600` permissions.
-```bash
-./tdm auth login
-# Output: Go to https://www.twitch.tv/activate?device-code=... and enter code: ...
-# Logged in as username (user id 12345678)
-```
-
-#### `tdm auth status`
-Validates the current OAuth token against Twitch API and displays the logged-in username and user ID.
-```bash
-./tdm auth status
-# Output: Authenticated as username (user id 12345678)
-```
-
-#### `tdm auth logout`
-Securely removes stored credentials and resets local authentication state.
-```bash
-./tdm auth logout
-# Output: Logged out successfully
-```
+| Command | Description |
+|---|---|
+| `tdm auth login` | Initiates Device Code Flow authorization and saves credentials to `auth.json`. |
+| `tdm auth status` | Validates active OAuth token and prints current account info. |
+| `tdm auth logout` | Removes saved credentials from local storage. |
 
 ---
 
-### 3. Inventory & Channel Inspection (`tdm inventory`, `tdm channel`)
+#### Inventory & Inspection Commands (`tdm inventory`, `tdm channel`)
 
-#### `tdm inventory list`
-Fetches all active, upcoming, and completed Twitch drop campaigns for the authenticated account, displaying required minutes, earned minutes, claim status, and account link status.
-```bash
-./tdm inventory list
-```
-
-#### `tdm inventory select`
-Runs the campaign selector against live Twitch data based on active priority and exclusion rules, showing which campaign would be mined next.
-```bash
-./tdm inventory select
-```
-
-#### `tdm inventory watch-decision`
-Simulates a channel selection and channel switch evaluation, showing the selected streamer and decision reasons.
-```bash
-./tdm inventory watch-decision
-```
-
-#### `tdm channel watch <channel>`
-Diagnostics command to test stream presence, channel metadata, broadcast ID extraction, and Spade minute beacon emission against a single specific channel.
-```bash
-./tdm channel watch streamer_login
-```
+| Command | Description |
+|---|---|
+| `tdm inventory list` | Lists all active, upcoming, and completed campaigns with minutes progress. |
+| `tdm inventory select` | Evaluates eligible campaigns against priority rules and prints next pick. |
+| `tdm inventory watch-decision` | Simulates channel selection logic for testing. |
+| `tdm channel watch <login>` | Connects to a specific channel directly to verify Spade beacon emission. |
 
 ---
 
-### 4. Configuration & Diagnostics (`tdm config`, `tdm gql`, `tdm pubsub`)
+#### Diagnostics Commands (`tdm config`, `tdm gql`, `tdm pubsub`)
 
-#### `tdm config show`
-Prints the active, merged configuration (from file and environment variables) in JSON format.
-```bash
-./tdm config show
-```
-
-#### `tdm config init`
-Creates a starter `config.json` file in the default configuration directory.
-```bash
-./tdm config init
-```
-
-#### `tdm gql probe <operation>`
-Executes an authenticated Twitch GraphQL persisted query from the registry (`internal/gql/operations.json`) and prints the raw JSON response.
-```bash
-./tdm gql probe ViewerDropsDashboard
-./tdm gql probe ChannelVideoProperties
-```
-
-#### `tdm pubsub listen`
-Opens an interactive diagnostics session connecting to Twitch PubSub WebSocket (`wss://pubsub-edge.twitch.tv/v1`), subscribing to `user-drop-events.<user_id>`, and printing raw drop events as they arrive.
-```bash
-./tdm pubsub listen
-```
-
-#### `tdm version`
-Prints binary version, Git commit hash, build date, and Go compiler version.
-```bash
-./tdm version
-```
+| Command | Description |
+|---|---|
+| `tdm config show` | Prints effective configuration JSON. |
+| `tdm config init` | Writes a starter `config.json` file. |
+| `tdm gql probe <query>` | Tests a persisted GraphQL query from `operations.json`. |
+| `tdm pubsub listen` | Subscribes to live WebSocket drop events for debugging. |
+| `tdm version` | Prints binary version, commit hash, build date, and compiler version. |
 
 ---
 
-### 5. Global Persistent Flags
+### Configuration:
 
-The following flags can be passed to any `tdm` command:
-
-| Flag | Shorthand | Description | Default |
-|---|---|---|---|
-| `--config <path>` | — | Path to custom configuration file | `""` (Auto-resolved via XDG) |
-| `--log-level <lvl>` | — | Log level (`debug`, `info`, `warn`, `error`) | `info` |
-| `--log-format <fmt>` | — | Log output format (`text`, `json`) | `text` |
-| `--log-file <path>` | — | Path to rotating log file | `""` (stderr) |
-| `--help` | `-h` | Help documentation for the command | — |
-
----
-
-## ⚙️ Configuration (`config.json`)
-
-Configuration is resolved automatically via standard **XDG Base Directory** paths:
-- **Linux / POSIX:** `$XDG_CONFIG_HOME/tdm/config.json` (defaults to `~/.config/tdm/config.json`)
+Configuration is read from standard OS configuration directories:
+- **Linux / macOS:** `$XDG_CONFIG_HOME/tdm/config.json` (defaults to `~/.config/tdm/config.json`)
 - **Windows:** `%LOCALAPPDATA%\tdm\config.json`
 
 Example `config.json`:
@@ -302,9 +207,9 @@ Example `config.json`:
   "log_format": "text",
   "log_file": "",
   "priority": [
-    "Rust",
-    "World of Warcraft",
-    "Fortnite"
+    "Special Events",
+    "Fortnite",
+    "Rust"
   ],
   "exclude": [
     "Closed Beta Game"
@@ -312,34 +217,35 @@ Example `config.json`:
 }
 ```
 
-### Environment Variable Overrides
-All options can be overridden via environment variables:
-- `TDM_CONFIG`: Path to custom configuration file.
+Environment variables take precedence over config files:
+- `TDM_CONFIG`: Custom configuration file path.
 - `TDM_LOG_LEVEL`: `debug`, `info`, `warn`, `error`.
 - `TDM_LOG_FORMAT`: `text` or `json`.
-- `TDM_LOG_FILE`: Path to rotating log file (empty = standard output/stderr).
+- `TDM_LOG_FILE`: Path to rotating log file.
 
 ---
 
-## 🔍 Reliability & Multi-Day Soak Qualification
+### Notes:
 
-`tdm` is engineered for uninterrupted multi-day execution:
-- **Goroutine Leak Proof:** Automated proxy soak tests (`TestSoak_GoroutineCeiling`, `TestSoak_ErrorPathDoesNotLeak`) cycle 800+ rapid mining loops with 0 goroutine growth.
-- **Zero Timer Drift:** Reselect and beacon timers maintain strictly bounded cadences (drift < 100µs).
-- **Race Condition Free:** All concurrent state mutations (PubSub vs GQL vs IPC) are protected by strict read/write locks.
+> [!WARNING]  
+> Due to how Twitch handles drop progression, watching streams in a browser on the same account that is actively being mined by `tdm` may cause conflicting progress reports from Twitch servers. Using the same account to watch other streams concurrently is discouraged.
 
-For profiling commands and multi-day manual verification checklists, see [docs/SOAK.md](docs/SOAK.md).
+> [!IMPORTANT]  
+> Authentication credentials are stored locally in `auth.json` with restricted file permissions (`0600`). Never share your `auth.json` or authorization tokens.
 
----
-
-## ⚖️ Acknowledgements & Attribution
-
-Portions of this project's Twitch protocol logic (OAuth Device Code Flow parameters, GQL persisted query operations, rate limiting models, Spade beacon payloads, and header structures) are ported from [DevilXD/TwitchDropsMiner](https://github.com/DevilXD/TwitchDropsMiner) (MIT License).
-
-Special thanks to **DevilXD** and all contributors to the original Python implementation. See the [NOTICE](NOTICE) and [LICENSE](LICENSE) files for full licensing details.
+> [!NOTE]  
+> Make sure to link your Twitch account to third-party game accounts on the [Twitch Campaigns Page](https://www.twitch.tv/drops/campaigns) so that drops for external publishers can be unlocked and earned.
 
 ---
 
-## 📄 License
+### Acknowledgements:
+
+Portions of this project's Twitch protocol models (Device Code Flow parameters, GQL operation mappings, rate limiting policies, Spade beacon payloads, and header structures) are ported from [DevilXD/TwitchDropsMiner](https://github.com/DevilXD/TwitchDropsMiner) (MIT License).
+
+Special thanks to **DevilXD** and all contributors to the original project. See [NOTICE](NOTICE) and [LICENSE](LICENSE) for details.
+
+---
+
+### License:
 
 This project is licensed under the [MIT License](LICENSE).
