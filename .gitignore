@@ -21,3 +21,7 @@ vendor/
 *.log
 *.pid
 *.sock
+
+# Local planning artifacts (GSD)
+.planning/
+CLAUDE.md
