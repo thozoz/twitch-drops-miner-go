@@ -1,0 +1,18 @@
+{
+  "data": {
+    "user": {
+      "id": "chan-offline-1",
+      "login": "streamer_offline",
+      "displayName": "Streamer Offline",
+      "stream": null,
+      "broadcastSettings": {
+        "title": "Offline Stream Title",
+        "game": {
+          "id": "100",
+          "displayName": "Test Game",
+          "slug": "test-game"
+        }
+      }
+    }
+  }
+}

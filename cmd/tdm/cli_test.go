@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/adrg/xdg"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tdm/internal/model"
@@ -17,6 +18,8 @@ func TestAuthStatus_NotAuthenticated(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", tempDir)
 	t.Setenv("XDG_CONFIG_HOME", tempDir)
+	xdg.Reload()
+	t.Cleanup(func() { xdg.Reload() })
 
 	buf := new(bytes.Buffer)
 	rootCmd.SetOut(buf)
@@ -31,6 +34,8 @@ func TestAuthLogout_Empty(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", tempDir)
 	t.Setenv("XDG_CONFIG_HOME", tempDir)
+	xdg.Reload()
+	t.Cleanup(func() { xdg.Reload() })
 
 	buf := new(bytes.Buffer)
 	rootCmd.SetOut(buf)
@@ -45,6 +50,8 @@ func TestGQLProbe_NotAuthenticated(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", tempDir)
 	t.Setenv("XDG_CONFIG_HOME", tempDir)
+	xdg.Reload()
+	t.Cleanup(func() { xdg.Reload() })
 
 	buf := new(bytes.Buffer)
 	rootCmd.SetOut(buf)
@@ -72,6 +79,8 @@ func TestAuthStatus_InvalidTokenExit2(t *testing.T) {
 	authPath := filepath.Join(tdmStateDir, "auth.json")
 	t.Setenv("XDG_STATE_HOME", tempDir)
 	t.Setenv("XDG_CONFIG_HOME", tempDir)
+	xdg.Reload()
+	t.Cleanup(func() { xdg.Reload() })
 
 	data := &model.AuthData{
 		AccessToken:  "invalid_token",
@@ -86,3 +95,54 @@ func TestAuthStatus_InvalidTokenExit2(t *testing.T) {
 	// Note: authStatusCmd uses newHTTPClient which talks to real twitch by default,
 	// but when Validate runs with a mock URL or invalid token, it returns ErrTokenInvalid -> ExitAuthRequired (2).
 }
+
+func TestInventoryList_NotAuthenticated(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", tempDir)
+	t.Setenv("XDG_CONFIG_HOME", tempDir)
+	xdg.Reload()
+	t.Cleanup(func() { xdg.Reload() })
+
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{"inventory", "list"})
+
+	code := Execute()
+	assert.Equal(t, ExitError, code)
+}
+
+func TestInventorySelect_NotAuthenticated(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", tempDir)
+	t.Setenv("XDG_CONFIG_HOME", tempDir)
+	xdg.Reload()
+	t.Cleanup(func() { xdg.Reload() })
+
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{"inventory", "select"})
+
+	code := Execute()
+	assert.Equal(t, ExitError, code)
+}
+
+func TestInventoryWatchDecision_NotAuthenticated(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", tempDir)
+	t.Setenv("XDG_CONFIG_HOME", tempDir)
+	xdg.Reload()
+	t.Cleanup(func() { xdg.Reload() })
+
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{"inventory", "watch-decision"})
+
+	code := Execute()
+	assert.Equal(t, ExitError, code)
+}
+
+
+

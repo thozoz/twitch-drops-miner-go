@@ -1,0 +1,53 @@
+{
+  "data": {
+    "user": {
+      "dropCampaign": {
+        "id": "camp-dash-3",
+        "name": "Dashboard Campaign 3 (ACL)",
+        "status": "ACTIVE",
+        "startAt": "2026-08-19T00:00:00Z",
+        "endAt": "2026-08-20T00:00:00Z",
+        "accountLinkURL": "https://example.com/link-3",
+        "game": {
+          "id": "103",
+          "displayName": "Game Three",
+          "slug": "game-three"
+        },
+        "self": {
+          "isAccountConnected": true
+        },
+        "allow": {
+          "isEnabled": true,
+          "channels": [
+            {
+              "id": "chan-103",
+              "name": "proplayer",
+              "displayName": "ProPlayer"
+            }
+          ]
+        },
+        "timeBasedDrops": [
+          {
+            "id": "drop-dash-3",
+            "name": "ACL Drop 1",
+            "startAt": "2026-08-19T00:00:00Z",
+            "endAt": "2026-08-20T00:00:00Z",
+            "requiredMinutesWatched": 60,
+            "benefitEdges": [
+              {
+                "benefit": {
+                  "id": "b-dash-3",
+                  "name": "ACL Skin",
+                  "distributionType": "DIRECT_ENTITLEMENT",
+                  "imageAssetURL": "https://example.com/c.png"
+                }
+              }
+            ],
+            "preconditionDrops": [],
+            "self": null
+          }
+        ]
+      }
+    }
+  }
+}

@@ -39,6 +39,8 @@ func Load(explicitPath string) (*Config, error) {
 		"log_level":  "info",
 		"log_format": "text",
 		"log_file":   "",
+		"priority":   []string{},
+		"exclude":    []string{},
 	}
 	if err := k.Load(confmap.Provider(defaultMap, "."), nil); err != nil {
 		return nil, err

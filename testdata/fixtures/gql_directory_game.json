@@ -1,0 +1,38 @@
+{
+  "data": {
+    "game": {
+      "id": "100",
+      "displayName": "Test Game",
+      "streams": {
+        "edges": [
+          {
+            "node": {
+              "id": "dir-stream-1",
+              "title": "Directory Live Stream",
+              "viewersCount": 500,
+              "game": {
+                "id": "100",
+                "displayName": "Test Game",
+                "slug": "test-game"
+              },
+              "broadcaster": {
+                "id": "chan-dir-1",
+                "login": "dir_streamer",
+                "displayName": "Dir Streamer"
+              }
+            }
+          },
+          {
+            "node": {
+              "id": "dir-stream-null",
+              "title": "Null Broadcaster Stream",
+              "viewersCount": 10,
+              "game": null,
+              "broadcaster": null
+            }
+          }
+        ]
+      }
+    }
+  }
+}

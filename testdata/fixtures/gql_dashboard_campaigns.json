@@ -1,0 +1,48 @@
+{
+  "data": {
+    "currentUser": {
+      "dropCampaigns": [
+        {
+          "id": "camp-prog-1",
+          "name": "InProgress Campaign",
+          "status": "ACTIVE",
+          "game": {
+            "id": "101",
+            "displayName": "Game One",
+            "slug": "game-one"
+          }
+        },
+        {
+          "id": "camp-dash-2",
+          "name": "Dashboard Campaign 2 (Unlinked)",
+          "status": "ACTIVE",
+          "game": {
+            "id": "102",
+            "displayName": "Game Two",
+            "slug": "game-two"
+          }
+        },
+        {
+          "id": "camp-dash-3",
+          "name": "Dashboard Campaign 3 (ACL)",
+          "status": "ACTIVE",
+          "game": {
+            "id": "103",
+            "displayName": "Game Three",
+            "slug": "game-three"
+          }
+        },
+        {
+          "id": "camp-expired",
+          "name": "Expired Campaign",
+          "status": "EXPIRED",
+          "game": {
+            "id": "104",
+            "displayName": "Game Four",
+            "slug": "game-four"
+          }
+        }
+      ]
+    }
+  }
+}

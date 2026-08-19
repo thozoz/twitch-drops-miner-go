@@ -1,0 +1,38 @@
+{
+  "data": {
+    "user": {
+      "dropCampaign": {
+        "id": "camp-acl-1",
+        "name": "ACL Campaign",
+        "status": "ACTIVE",
+        "startAt": "2026-08-19T00:00:00Z",
+        "endAt": "2026-08-20T00:00:00Z",
+        "accountLinkURL": "https://example.com/link-acl",
+        "game": {
+          "id": "100",
+          "displayName": "Test Game",
+          "slug": "test-game"
+        },
+        "self": {
+          "isAccountConnected": true
+        },
+        "allow": {
+          "isEnabled": true,
+          "channels": [
+            {
+              "id": "chan-online-1",
+              "name": "streamer_online",
+              "displayName": "Streamer Online"
+            },
+            {
+              "id": "chan-offline-1",
+              "name": "streamer_offline",
+              "displayName": "Streamer Offline"
+            }
+          ]
+        },
+        "timeBasedDrops": []
+      }
+    }
+  }
+}

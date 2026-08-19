@@ -1,0 +1,88 @@
+{
+  "data": {
+    "currentUser": {
+      "inventory": {
+        "gameEventDrops": [
+          {
+            "id": "b-claimed-1",
+            "lastAwardedAt": "2026-08-19T10:00:00Z"
+          }
+        ],
+        "dropCampaignsInProgress": [
+          {
+            "id": "camp-prog-1",
+            "name": "InProgress Campaign",
+            "status": "ACTIVE",
+            "startAt": "2026-08-19T00:00:00Z",
+            "endAt": "2026-08-20T00:00:00Z",
+            "accountLinkURL": "https://example.com/link-1",
+            "game": {
+              "id": "101",
+              "displayName": "Game One",
+              "slug": "game-one"
+            },
+            "self": {
+              "isAccountConnected": true
+            },
+            "allow": {
+              "isEnabled": true,
+              "channels": []
+            },
+            "timeBasedDrops": [
+              {
+                "id": "drop-prog-1",
+                "name": "Progress Drop 1",
+                "startAt": "2026-08-19T00:00:00Z",
+                "endAt": "2026-08-20T00:00:00Z",
+                "requiredMinutesWatched": 60,
+                "benefitEdges": [
+                  {
+                    "benefit": {
+                      "id": "b-prog-1",
+                      "name": "Skin A",
+                      "distributionType": "DIRECT_ENTITLEMENT",
+                      "imageAssetURL": "https://example.com/a.png"
+                    }
+                  }
+                ],
+                "preconditionDrops": [],
+                "self": {
+                  "dropInstanceID": "inst-1",
+                  "isClaimed": true,
+                  "currentMinutesWatched": 60
+                }
+              },
+              {
+                "id": "drop-prog-2",
+                "name": "Progress Drop 2",
+                "startAt": "2026-08-19T00:00:00Z",
+                "endAt": "2026-08-20T00:00:00Z",
+                "requiredMinutesWatched": 120,
+                "benefitEdges": [
+                  {
+                    "benefit": {
+                      "id": "b-prog-2",
+                      "name": "Skin B",
+                      "distributionType": "DIRECT_ENTITLEMENT",
+                      "imageAssetURL": "https://example.com/b.png"
+                    }
+                  }
+                ],
+                "preconditionDrops": [
+                  {
+                    "id": "drop-prog-1"
+                  }
+                ],
+                "self": {
+                  "dropInstanceID": "inst-2",
+                  "isClaimed": false,
+                  "currentMinutesWatched": 45
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

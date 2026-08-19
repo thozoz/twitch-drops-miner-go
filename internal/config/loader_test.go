@@ -20,12 +20,14 @@ func TestDefaultConfig(t *testing.T) {
 	assert.Equal(t, "info", cfg.LogLevel)
 	assert.Equal(t, "text", cfg.LogFormat)
 	assert.Equal(t, "", cfg.LogFile)
+	assert.Empty(t, cfg.Priority)
+	assert.Empty(t, cfg.Exclude)
 }
 
 func TestConfigFileLoading(t *testing.T) {
 	tempDir := t.TempDir()
 	cfgPath := filepath.Join(tempDir, "custom-config.json")
-	content := `{"log_level": "warn", "log_format": "json", "log_file": "/tmp/test.log"}`
+	content := `{"log_level": "warn", "log_format": "json", "log_file": "/tmp/test.log", "priority": ["GameA"], "exclude": ["GameB"]}`
 	require.NoError(t, os.WriteFile(cfgPath, []byte(content), 0644))
 
 	cfg, err := Load(cfgPath)
@@ -33,6 +35,8 @@ func TestConfigFileLoading(t *testing.T) {
 	assert.Equal(t, "warn", cfg.LogLevel)
 	assert.Equal(t, "json", cfg.LogFormat)
 	assert.Equal(t, "/tmp/test.log", cfg.LogFile)
+	assert.Equal(t, []string{"GameA"}, cfg.Priority)
+	assert.Equal(t, []string{"GameB"}, cfg.Exclude)
 }
 
 func TestExplicitMissingConfigFileErrors(t *testing.T) {

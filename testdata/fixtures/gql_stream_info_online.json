@@ -1,0 +1,21 @@
+{
+  "data": {
+    "user": {
+      "id": "chan-online-1",
+      "login": "streamer_online",
+      "displayName": "Streamer Online",
+      "stream": {
+        "id": "stream-broadcast-1",
+        "viewersCount": 1250
+      },
+      "broadcastSettings": {
+        "title": "Live Stream Title",
+        "game": {
+          "id": "100",
+          "displayName": "Test Game",
+          "slug": "test-game"
+        }
+      }
+    }
+  }
+}
