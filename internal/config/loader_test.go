@@ -87,6 +87,10 @@ func TestPaths(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(sDir, "auth.json"), aFile)
 
+	sFile, err := StateFilePath()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(sDir, "state.json"), sFile)
+
 	oFile, err := OperationsOverridePath()
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(cDir, "operations.json"), oFile)

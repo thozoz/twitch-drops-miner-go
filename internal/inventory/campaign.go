@@ -163,8 +163,8 @@ func (c DropsCampaign) dropCanEarnWithin(d TimedDrop, now, stamp time.Time, pCha
 	return c.dropBaseEarnConditions(d, pChain) && d.EndsAt.After(now) && d.StartsAt.Before(stamp)
 }
 
-// CanEarn reports whether this campaign can be earned now on the given channel (or any channel if channel is nil).
-func (c DropsCampaign) CanEarn(now time.Time, channel *model.Channel) bool {
+// campaignLevelCanEarn checks whether the campaign is eligible, active, and matches channel ACL/game constraints.
+func (c DropsCampaign) campaignLevelCanEarn(now time.Time, channel *model.Channel) bool {
 	if !c.Eligible() || !c.Active(now) {
 		return false
 	}
@@ -192,6 +192,15 @@ func (c DropsCampaign) CanEarn(now time.Time, channel *model.Channel) bool {
 		}
 	}
 
+	return true
+}
+
+// CanEarn reports whether this campaign can be earned now on the given channel (or any channel if channel is nil).
+func (c DropsCampaign) CanEarn(now time.Time, channel *model.Channel) bool {
+	if !c.campaignLevelCanEarn(now, channel) {
+		return false
+	}
+
 	pChain := c.preconditionsChain()
 	for _, d := range c.Drops {
 		if c.dropBaseCanEarn(d, now, pChain) {
@@ -199,6 +208,23 @@ func (c DropsCampaign) CanEarn(now time.Time, channel *model.Channel) bool {
 		}
 	}
 	return false
+}
+
+// FirstEarnableDrop returns the first drop in slice order that is currently earnable,
+// honoring precondition unlock order and channel/ACL/game constraints.
+// Returns (nil, false) if no drop is currently earnable.
+func (c DropsCampaign) FirstEarnableDrop(now time.Time, channel *model.Channel) (*TimedDrop, bool) {
+	if !c.campaignLevelCanEarn(now, channel) {
+		return nil, false
+	}
+
+	pChain := c.preconditionsChain()
+	for i := range c.Drops {
+		if c.dropBaseCanEarn(c.Drops[i], now, pChain) {
+			return &c.Drops[i], true
+		}
+	}
+	return nil, false
 }
 
 // CanEarnWithin reports whether this campaign has any drops that can be earned before stamp.

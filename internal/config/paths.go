@@ -34,6 +34,15 @@ func AuthFilePath() (string, error) {
 	return filepath.Join(dir, "auth.json"), nil
 }
 
+// StateFilePath returns the path to state.json ($XDG_STATE_HOME/tdm/state.json).
+func StateFilePath() (string, error) {
+	dir, err := StateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "state.json"), nil
+}
+
 // OperationsOverridePath returns the path to operations.json override ($XDG_CONFIG_HOME/tdm/operations.json).
 func OperationsOverridePath() (string, error) {
 	dir, err := ConfigDir()
@@ -42,3 +51,4 @@ func OperationsOverridePath() (string, error) {
 	}
 	return filepath.Join(dir, "operations.json"), nil
 }
+

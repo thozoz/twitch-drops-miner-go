@@ -1,0 +1,10 @@
+{
+  "data": {
+    "currentUser": {
+      "dropCurrentSession": {
+        "dropID": "drop-abc",
+        "currentMinutesWatched": 7
+      }
+    }
+  }
+}

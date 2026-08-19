@@ -144,5 +144,38 @@ func TestInventoryWatchDecision_NotAuthenticated(t *testing.T) {
 	assert.Equal(t, ExitError, code)
 }
 
+func TestChannelWatch_NotAuthenticated(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", tempDir)
+	t.Setenv("XDG_CONFIG_HOME", tempDir)
+	xdg.Reload()
+	t.Cleanup(func() { xdg.Reload() })
+
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{"channel", "watch", "somechannel"})
+
+	code := Execute()
+	assert.Equal(t, ExitError, code)
+}
+
+func TestMine_NotAuthenticated(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", tempDir)
+	t.Setenv("XDG_CONFIG_HOME", tempDir)
+	xdg.Reload()
+	t.Cleanup(func() { xdg.Reload() })
+
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{"mine"})
+
+	code := Execute()
+	assert.Equal(t, ExitError, code)
+}
+
+
 
 

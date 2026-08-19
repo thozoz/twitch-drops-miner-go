@@ -1,0 +1,8 @@
+{
+  "type": "drop-progress",
+  "data": {
+    "drop_id": "00000000-0000-0000-0000-000000000000",
+    "current_progress_min": 3,
+    "required_progress_min": 10
+  }
+}

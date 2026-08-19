@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"tdm/internal/model"
 )
 
@@ -272,4 +273,154 @@ func TestDropsCampaign_CanEarnWithin(t *testing.T) {
 	assert.False(t, campaign.CanEarnWithin(now, now.Add(15*time.Minute)))
 	// Can earn within 1 hour? Yes (starts in 30m)
 	assert.True(t, campaign.CanEarnWithin(now, now.Add(1*time.Hour)))
+}
+
+func TestDropsCampaign_FirstEarnableDrop(t *testing.T) {
+	now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+	game := model.NewGame("100", "Normal Game", "")
+
+	// Test 1: single-drop campaign with earnable drop
+	t.Run("single-drop campaign returns drop pointer and ok=true", func(t *testing.T) {
+		campaign := DropsCampaign{
+			ID:       "c1",
+			Name:     "Campaign 1",
+			Game:     game,
+			Linked:   true,
+			Valid:    true,
+			StartsAt: now.Add(-1 * time.Hour),
+			EndsAt:   now.Add(1 * time.Hour),
+			Drops: []TimedDrop{
+				{
+					ID:              "d1",
+					Name:            "Drop 1",
+					StartsAt:        now.Add(-1 * time.Hour),
+					EndsAt:          now.Add(1 * time.Hour),
+					RequiredMinutes: 30,
+					CurrentMinutes:  0,
+					IsClaimed:       false,
+					Benefits:        []Benefit{{ID: "b1", Type: BenefitDirectEntitlement}},
+				},
+			},
+		}
+
+		drop, ok := campaign.FirstEarnableDrop(now, nil)
+		assert.True(t, ok)
+		require.NotNil(t, drop)
+		assert.Equal(t, "d1", drop.ID)
+		assert.Equal(t, "Drop 1", drop.Name)
+	})
+
+	// Test 2: campaign-level gate fails (channel game mismatch)
+	t.Run("campaign-level gate fails on channel game mismatch", func(t *testing.T) {
+		campaign := DropsCampaign{
+			ID:       "c2",
+			Name:     "Campaign 2",
+			Game:     game,
+			Linked:   true,
+			Valid:    true,
+			StartsAt: now.Add(-1 * time.Hour),
+			EndsAt:   now.Add(1 * time.Hour),
+			Drops: []TimedDrop{
+				{
+					ID:              "d1",
+					Name:            "Drop 1",
+					StartsAt:        now.Add(-1 * time.Hour),
+					EndsAt:          now.Add(1 * time.Hour),
+					RequiredMinutes: 30,
+					IsClaimed:       false,
+					Benefits:        []Benefit{{ID: "b1"}},
+				},
+			},
+		}
+
+		diffGame := model.NewGame("200", "Other Game", "")
+		chanDiff := &model.Channel{
+			ID:     "c_diff",
+			Login:  "diff",
+			Online: true,
+			Game:   &diffGame,
+		}
+
+		drop, ok := campaign.FirstEarnableDrop(now, chanDiff)
+		assert.False(t, ok)
+		assert.Nil(t, drop)
+	})
+
+	// Test 3: multi-tier ordering: tier-2 drop not returned while tier-1 precondition drop is unclaimed
+	t.Run("multi-tier precondition ordering", func(t *testing.T) {
+		campaign := DropsCampaign{
+			ID:       "c3",
+			Name:     "Campaign 3",
+			Game:     game,
+			Linked:   true,
+			Valid:    true,
+			StartsAt: now.Add(-1 * time.Hour),
+			EndsAt:   now.Add(1 * time.Hour),
+			Drops: []TimedDrop{
+				{
+					ID:                  "d1",
+					Name:                "Tier 1 Drop",
+					StartsAt:            now.Add(-1 * time.Hour),
+					EndsAt:              now.Add(1 * time.Hour),
+					RequiredMinutes:     30,
+					CurrentMinutes:      0,
+					IsClaimed:           false,
+					Benefits:            []Benefit{{ID: "b1"}},
+					PreconditionDropIDs: nil,
+				},
+				{
+					ID:                  "d2",
+					Name:                "Tier 2 Drop",
+					StartsAt:            now.Add(-1 * time.Hour),
+					EndsAt:              now.Add(1 * time.Hour),
+					RequiredMinutes:     60,
+					CurrentMinutes:      0,
+					IsClaimed:           false,
+					Benefits:            []Benefit{{ID: "b2"}},
+					PreconditionDropIDs: []string{"d1"},
+				},
+			},
+		}
+
+		// When d1 is unclaimed, FirstEarnableDrop must return d1, never d2
+		drop, ok := campaign.FirstEarnableDrop(now, nil)
+		assert.True(t, ok)
+		require.NotNil(t, drop)
+		assert.Equal(t, "d1", drop.ID)
+
+		// Mark d1 as claimed -> FirstEarnableDrop now unlocks and returns d2
+		campaign.Drops[0].IsClaimed = true
+		drop2, ok2 := campaign.FirstEarnableDrop(now, nil)
+		assert.True(t, ok2)
+		require.NotNil(t, drop2)
+		assert.Equal(t, "d2", drop2.ID)
+	})
+
+	// Test 4: all drops claimed -> returns nil, false
+	t.Run("all drops claimed returns nil, false", func(t *testing.T) {
+		campaign := DropsCampaign{
+			ID:       "c4",
+			Name:     "Campaign 4",
+			Game:     game,
+			Linked:   true,
+			Valid:    true,
+			StartsAt: now.Add(-1 * time.Hour),
+			EndsAt:   now.Add(1 * time.Hour),
+			Drops: []TimedDrop{
+				{
+					ID:              "d1",
+					Name:            "Drop 1",
+					StartsAt:        now.Add(-1 * time.Hour),
+					EndsAt:          now.Add(1 * time.Hour),
+					RequiredMinutes: 30,
+					IsClaimed:       true,
+					Benefits:        []Benefit{{ID: "b1"}},
+				},
+			},
+		}
+
+		drop, ok := campaign.FirstEarnableDrop(now, nil)
+		assert.False(t, ok)
+		assert.Nil(t, drop)
+	})
 }

@@ -1,0 +1,8 @@
+{
+  "data": {
+    "streamPlaybackAccessToken": {
+      "value": "{\"authorization\":{\"forbidden\":false,\"reason\":\"\"},\"channel\":\"streamer_online\",\"user_id\":\"123456\"}",
+      "signature": "abcdef0123456789abcdef0123456789abcdef01"
+    }
+  }
+}
