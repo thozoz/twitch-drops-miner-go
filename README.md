@@ -1,5 +1,11 @@
 # Twitch Drops Miner (Go)
 
+[![CI](https://github.com/thozoz/twitch-drops-miner-go/actions/workflows/ci.yml/badge.svg)](https://github.com/thozoz/twitch-drops-miner-go/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/thozoz/twitch-drops-miner-go?sort=semver)](https://github.com/thozoz/twitch-drops-miner-go/releases/latest)
+[![Go Reference](https://pkg.go.dev/badge/github.com/thozoz/twitch-drops-miner-go.svg)](https://pkg.go.dev/github.com/thozoz/twitch-drops-miner-go)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/thozoz/twitch-drops-miner-go)](go.mod)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 This application allows you to AFK mine timed Twitch drops without having to worry about switching channels when the one you were watching goes offline, claiming the drops, or receiving any stream data itself. This helps you save on bandwidth and hassle.
 
 This repository is a lightweight, headless-first reimplementation of [DevilXD/TwitchDropsMiner](https://github.com/DevilXD/TwitchDropsMiner) written from scratch in Go.
@@ -97,24 +103,27 @@ go build -o tdm ./cmd/tdm
 #### 2. Log in to your Twitch account:
 
 ```bash
-./tdm auth login
+tdm auth login
 ```
+
+> If you built from source without installing, run the binary from the build directory as `./tdm` instead.
+
 Follow the on-screen link (`https://www.twitch.tv/activate?device-code=...`) to authorize `tdm` with your Twitch account.
 
 #### 3. Start mining:
 
 ```bash
 # Start background daemon
-./tdm start
+tdm start
 
 # View live progress and active drop
-./tdm status
+tdm status
 
 # Follow logs in real-time
-./tdm logs -f
+tdm logs -f
 
 # Stop the daemon when finished
-./tdm stop
+tdm stop
 ```
 
 ---
@@ -165,7 +174,7 @@ All credentials and state are persisted in the `./data` directory.
 
 ##### `tdm start`
 ```bash
-./tdm start
+tdm start
 
 # Flags:
 #   --config <path>      Path to custom config file
@@ -176,7 +185,7 @@ All credentials and state are persisted in the `./data` directory.
 
 ##### `tdm stop`
 ```bash
-./tdm stop
+tdm stop
 
 # Flags:
 #   --timeout <sec>      Timeout in seconds for graceful shutdown (default: 15)
@@ -184,31 +193,31 @@ All credentials and state are persisted in the `./data` directory.
 
 ##### `tdm status`
 ```bash
-./tdm status
+tdm status
 
 # JSON output for monitoring / scripts:
-./tdm status --json
+tdm status --json
 ```
 
 ##### `tdm logs`
 ```bash
 # View last 50 lines:
-./tdm logs
+tdm logs
 
 # Follow logs live (tail -f):
-./tdm logs -f
+tdm logs -f
 ```
 
 ##### `tdm priority`
 ```bash
 # View current priority list:
-./tdm priority list
+tdm priority list
 
 # Add games to priority list:
-./tdm priority add "Rust" "World of Warcraft"
+tdm priority add "Rust" "World of Warcraft"
 
 # Overwrite priority list:
-./tdm priority set "Special Events" "Fortnite" "Rust"
+tdm priority set "Special Events" "Fortnite" "Rust"
 ```
 
 ---
@@ -242,7 +251,7 @@ All credentials and state are persisted in the `./data` directory.
 | `tdm config init` | Writes a starter `config.json` file. |
 | `tdm gql probe <query>` | Tests a persisted GraphQL query from `operations.json`. |
 | `tdm pubsub listen` | Subscribes to live WebSocket drop events for debugging. |
-| `tdm version` | Prints binary version, commit hash, build date, and compiler version. |
+| `tdm version` | Prints the binary version, and the commit hash and build date when available. |
 
 ---
 
