@@ -1,0 +1,7 @@
+{
+  "device_code": "abcdefghijklmnopqrstuvwxyz1234567890ABCD",
+  "expires_in": 1800,
+  "interval": 5,
+  "user_code": "ABCDEFGH",
+  "verification_uri": "https://www.twitch.tv/activate?device-code=ABCDEFGH"
+}

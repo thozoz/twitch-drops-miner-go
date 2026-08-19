@@ -1,0 +1,6 @@
+{
+  "access_token": "abcdefghijklmnopqrstuvwxyz1234567890abcd",
+  "refresh_token": "1234567890abcdefghijklmnopqrstuvwxyz1234",
+  "scope": [],
+  "token_type": "bearer"
+}
