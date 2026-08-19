@@ -69,9 +69,13 @@ var startCmd = &cobra.Command{
 		}
 
 		childCmd := exec.Command(selfPath, childArgs...)
-		childCmd.Stdin = nil
-		childCmd.Stdout = nil
-		childCmd.Stderr = nil
+		devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+		if err == nil {
+			childCmd.Stdin = devNull
+			childCmd.Stdout = devNull
+			childCmd.Stderr = devNull
+			defer devNull.Close()
+		}
 
 		daemon.ConfigureDetached(childCmd)
 
