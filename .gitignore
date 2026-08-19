@@ -1,0 +1,23 @@
+# Secrets — never commit
+cookies.jar
+settings.json
+*.jar
+auth.json
+token.json
+
+# Build output
+/tdm
+/tdm-*
+/dist/
+/build/
+
+# Go
+*.exe
+*.test
+*.out
+vendor/
+
+# Local runtime state
+*.log
+*.pid
+*.sock
