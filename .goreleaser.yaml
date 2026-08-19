@@ -37,7 +37,23 @@ checksum:
 
 changelog:
   sort: asc
+  use: github
   filters:
     exclude:
-      - '^docs:'
-      - '^test:'
+      - '^docs'
+      - '^test'
+      - '^chore'
+      - '^ci'
+      - '^style'
+      - '^refactor\(planning\)'
+      - 'Merge pull request'
+      - 'Merge branch'
+  groups:
+    - title: Features
+      regexp: '^feat'
+      order: 0
+    - title: Bug fixes
+      regexp: '^fix'
+      order: 1
+    - title: Other
+      order: 999
