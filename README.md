@@ -273,6 +273,17 @@ Environment variables take precedence over config files:
 
 ---
 
+### Roadmap:
+
+- [x] Lightweight headless background daemon (`tdm start` / `tdm stop`)
+- [x] Zero-bandwidth Spade beacon watch presence (0 KB video data downloaded)
+- [x] JSON-RPC 2.0 local control plane (Unix socket / Named pipe)
+- [x] Multi-platform Docker support & automated CI/CD releases
+- [ ] Embedded Web Dashboard (remote monitoring via web browser on LAN/VPS)
+- [ ] Cross-platform Desktop GUI (native desktop application powered by Wails)
+
+---
+
 ### Acknowledgements:
 
 Portions of this project's Twitch protocol models (Device Code Flow parameters, GQL operation mappings, rate limiting policies, Spade beacon payloads, and header structures) are ported from [DevilXD/TwitchDropsMiner](https://github.com/DevilXD/TwitchDropsMiner) (MIT License).
