@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"tdm/internal/gql"
@@ -256,6 +257,11 @@ func parseRawCampaign(rc rawCampaign, claimedBenefits map[string]time.Time, logg
 	if rc.Self != nil {
 		linked = rc.Self.IsAccountConnected
 	}
+	// Special Events and Twitch-native campaigns (badges, emotes, twitch.tv links) do not
+	// require external 3rd-party game publisher account linking.
+	if !linked && (game.IsSpecial() || game.Name == "Special Events" || isTwitchNativeLink(rc.AccountLinkURL)) {
+		linked = true
+	}
 
 	var allowedChannels []model.Channel
 	if rc.Allow != nil && (rc.Allow.IsEnabled == nil || *rc.Allow.IsEnabled) {
@@ -346,4 +352,11 @@ func parseRawCampaign(rc rawCampaign, claimedBenefits map[string]time.Time, logg
 		AllowedChannels: allowedChannels,
 		Drops:           drops,
 	}, true
+}
+
+func isTwitchNativeLink(rawURL string) bool {
+	if rawURL == "" {
+		return true
+	}
+	return strings.Contains(rawURL, "twitch.tv")
 }
