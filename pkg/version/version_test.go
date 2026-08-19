@@ -84,3 +84,15 @@ func TestString(t *testing.T) {
 
 	assert.Equal(t, "tdm 1.0.1 (60e15d8) built 2026-08-19T14:48:04Z", String())
 }
+
+func TestString_OmitsUnresolvedParts(t *testing.T) {
+	reset(t, "1.0.2", devCommit, devDate)
+
+	assert.Equal(t, "tdm 1.0.2", String(), "proxy builds carry no VCS stamps")
+}
+
+func TestString_OmitsDateOnly(t *testing.T) {
+	reset(t, "1.0.2", "60e15d8", devDate)
+
+	assert.Equal(t, "tdm 1.0.2 (60e15d8)", String())
+}

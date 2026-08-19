@@ -1,7 +1,6 @@
 package version
 
 import (
-	"fmt"
 	"runtime/debug"
 	"strings"
 )
@@ -70,7 +69,17 @@ func applyBuildInfo(bi *debug.BuildInfo) {
 	}
 }
 
-// String returns a formatted version string.
+// String returns a formatted version string, omitting the parts that could not
+// be resolved. Binaries installed from the module proxy carry a version but no
+// VCS stamps, so they render as "tdm 1.0.2" rather than
+// "tdm 1.0.2 (none) built unknown".
 func String() string {
-	return fmt.Sprintf("tdm %s (%s) built %s", Version, Commit, Date)
+	s := "tdm " + Version
+	if Commit != devCommit {
+		s += " (" + Commit + ")"
+	}
+	if Date != devDate {
+		s += " built " + Date
+	}
+	return s
 }
