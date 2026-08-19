@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"tdm/internal/model"
-	"tdm/internal/state"
+	"github.com/thozoz/twitch-drops-miner-go/internal/model"
+	"github.com/thozoz/twitch-drops-miner-go/internal/state"
 )
 
 // ErrReauthRequired indicates that stored credentials are missing, invalid, or refresh failed.

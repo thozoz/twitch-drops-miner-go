@@ -16,7 +16,7 @@ ARG COMMIT=docker
 ARG DATE=unknown
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
-    -ldflags "-s -w -X tdm/pkg/version.Version=${VERSION} -X tdm/pkg/version.Commit=${COMMIT} -X tdm/pkg/version.Date=${DATE}" \
+    -ldflags "-s -w -X github.com/thozoz/twitch-drops-miner-go/pkg/version.Version=${VERSION} -X github.com/thozoz/twitch-drops-miner-go/pkg/version.Commit=${COMMIT} -X github.com/thozoz/twitch-drops-miner-go/pkg/version.Date=${DATE}" \
     -o /build/tdm \
     ./cmd/tdm
 

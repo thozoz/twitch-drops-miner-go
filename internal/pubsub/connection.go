@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"tdm/internal/gql"
+	"github.com/thozoz/twitch-drops-miner-go/internal/gql"
 )
 
 const (

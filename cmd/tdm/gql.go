@@ -8,10 +8,10 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"tdm/internal/auth"
-	"tdm/internal/config"
-	"tdm/internal/gql"
-	"tdm/internal/logging"
+	"github.com/thozoz/twitch-drops-miner-go/internal/auth"
+	"github.com/thozoz/twitch-drops-miner-go/internal/config"
+	"github.com/thozoz/twitch-drops-miner-go/internal/gql"
+	"github.com/thozoz/twitch-drops-miner-go/internal/logging"
 )
 
 var gqlVarFlags []string

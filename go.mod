@@ -1,4 +1,4 @@
-module tdm
+module github.com/thozoz/twitch-drops-miner-go
 
 go 1.26.4
 
@@ -14,6 +14,7 @@ require (
 	github.com/knadh/koanf/v2 v2.3.6
 	github.com/sourcegraph/jsonrpc2 v0.2.2
 	github.com/spf13/cobra v1.10.2
+	github.com/spf13/pflag v1.0.9
 	github.com/stretchr/testify v1.12.0
 	golang.org/x/sync v0.22.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
@@ -26,7 +27,6 @@ require (
 	github.com/knadh/koanf/maps v0.1.2 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
-	github.com/spf13/pflag v1.0.9 // indirect
 	golang.org/x/net v0.43.0 // indirect
 	golang.org/x/sys v0.35.0 // indirect
 	golang.org/x/time v0.15.0 // indirect

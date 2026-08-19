@@ -12,8 +12,8 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tdm/internal/gql"
-	"tdm/internal/model"
+	"github.com/thozoz/twitch-drops-miner-go/internal/gql"
+	"github.com/thozoz/twitch-drops-miner-go/internal/model"
 )
 
 func TestResolve_ACLPath(t *testing.T) {

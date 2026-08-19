@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"tdm/internal/config"
-	"tdm/internal/ipc"
+	"github.com/thozoz/twitch-drops-miner-go/internal/config"
+	"github.com/thozoz/twitch-drops-miner-go/internal/ipc"
 )
 
 var logsCmd = &cobra.Command{

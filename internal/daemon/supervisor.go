@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"tdm/internal/gql"
-	"tdm/internal/inventory"
-	"tdm/internal/ipc"
-	"tdm/internal/model"
-	"tdm/internal/session"
+	"github.com/thozoz/twitch-drops-miner-go/internal/gql"
+	"github.com/thozoz/twitch-drops-miner-go/internal/inventory"
+	"github.com/thozoz/twitch-drops-miner-go/internal/ipc"
+	"github.com/thozoz/twitch-drops-miner-go/internal/model"
+	"github.com/thozoz/twitch-drops-miner-go/internal/session"
 )
 
 // SupervisorOption configures a Supervisor instance.

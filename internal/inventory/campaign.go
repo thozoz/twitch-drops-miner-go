@@ -3,7 +3,7 @@ package inventory
 import (
 	"time"
 
-	"tdm/internal/model"
+	"github.com/thozoz/twitch-drops-miner-go/internal/model"
 )
 
 // BenefitType defines the distribution type of a drop reward.

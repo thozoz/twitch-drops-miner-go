@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"tdm/pkg/version"
+	"github.com/thozoz/twitch-drops-miner-go/pkg/version"
 )
 
 var versionCmd = &cobra.Command{

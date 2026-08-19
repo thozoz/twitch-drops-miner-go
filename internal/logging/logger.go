@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	"gopkg.in/natefinch/lumberjack.v2"
-	"tdm/internal/config"
+	"github.com/thozoz/twitch-drops-miner-go/internal/config"
 )
 
 type contextKey struct{}

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
-	"tdm/internal/gql"
-	"tdm/internal/model"
+	"github.com/thozoz/twitch-drops-miner-go/internal/gql"
+	"github.com/thozoz/twitch-drops-miner-go/internal/model"
 )
 
 const defaultWatchInterval = 59 * time.Second

@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"golang.org/x/sync/errgroup"
-	"tdm/internal/channel"
-	"tdm/internal/gql"
-	"tdm/internal/inventory"
-	"tdm/internal/model"
-	"tdm/internal/pubsub"
-	"tdm/internal/state"
+	"github.com/thozoz/twitch-drops-miner-go/internal/channel"
+	"github.com/thozoz/twitch-drops-miner-go/internal/gql"
+	"github.com/thozoz/twitch-drops-miner-go/internal/inventory"
+	"github.com/thozoz/twitch-drops-miner-go/internal/model"
+	"github.com/thozoz/twitch-drops-miner-go/internal/pubsub"
+	"github.com/thozoz/twitch-drops-miner-go/internal/state"
 )
 
 var (

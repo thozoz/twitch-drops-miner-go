@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
-	"tdm/internal/model"
-	"tdm/internal/state"
+	"github.com/thozoz/twitch-drops-miner-go/internal/model"
+	"github.com/thozoz/twitch-drops-miner-go/internal/state"
 )
 
 // Session manages the current authenticated session state, persistence, and token lifecycle.

@@ -64,7 +64,24 @@ To keep channel states up-to-date and detect drop completions instantly, a WebSo
 
 ### Quick Start:
 
-#### 1. Build from source (requires Go 1.26+):
+#### 1. Install:
+
+**Option A — prebuilt binary** (no Go toolchain required):
+
+Download the archive for your platform from the [latest release](https://github.com/thozoz/twitch-drops-miner-go/releases/latest), verify it against `checksums.txt`, then:
+
+```bash
+tar -xzf tdm-*-linux-amd64.tar.gz
+sudo install -m 755 tdm /usr/local/bin/tdm
+```
+
+**Option B — `go install`** (requires Go 1.26+):
+
+```bash
+go install github.com/thozoz/twitch-drops-miner-go/cmd/tdm@latest
+```
+
+**Option C — build from source** (requires Go 1.26+):
 
 ```bash
 git clone https://github.com/thozoz/twitch-drops-miner-go.git

@@ -16,8 +16,8 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tdm/internal/model"
-	"tdm/internal/state"
+	"github.com/thozoz/twitch-drops-miner-go/internal/model"
+	"github.com/thozoz/twitch-drops-miner-go/internal/state"
 )
 
 func TestRefreshOnUnauthorized_ConcurrentSingleFlight(t *testing.T) {

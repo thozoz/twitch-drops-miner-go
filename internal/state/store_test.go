@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"tdm/internal/model"
+	"github.com/thozoz/twitch-drops-miner-go/internal/model"
 )
 
 func TestAtomicWriteJSON_RoundTrip(t *testing.T) {

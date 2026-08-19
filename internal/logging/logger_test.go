@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tdm/internal/config"
+	"github.com/thozoz/twitch-drops-miner-go/internal/config"
 )
 
 func TestNewLogger(t *testing.T) {

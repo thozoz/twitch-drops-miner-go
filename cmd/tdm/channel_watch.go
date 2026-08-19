@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"tdm/internal/auth"
-	"tdm/internal/channel"
-	"tdm/internal/config"
-	"tdm/internal/gql"
-	"tdm/internal/logging"
-	"tdm/internal/model"
+	"github.com/thozoz/twitch-drops-miner-go/internal/auth"
+	"github.com/thozoz/twitch-drops-miner-go/internal/channel"
+	"github.com/thozoz/twitch-drops-miner-go/internal/config"
+	"github.com/thozoz/twitch-drops-miner-go/internal/gql"
+	"github.com/thozoz/twitch-drops-miner-go/internal/logging"
+	"github.com/thozoz/twitch-drops-miner-go/internal/model"
 )
 
 var channelWatchMinutes int

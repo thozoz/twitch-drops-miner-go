@@ -11,8 +11,8 @@ import (
 	"github.com/sourcegraph/jsonrpc2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tdm/internal/config"
-	"tdm/internal/ipc"
+	"github.com/thozoz/twitch-drops-miner-go/internal/config"
+	"github.com/thozoz/twitch-drops-miner-go/internal/ipc"
 )
 
 type mockStatusHandler struct {

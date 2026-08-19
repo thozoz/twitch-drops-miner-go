@@ -18,12 +18,12 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tdm/internal/channel"
-	"tdm/internal/gql"
-	"tdm/internal/inventory"
-	"tdm/internal/model"
-	"tdm/internal/pubsub"
-	statestore "tdm/internal/state"
+	"github.com/thozoz/twitch-drops-miner-go/internal/channel"
+	"github.com/thozoz/twitch-drops-miner-go/internal/gql"
+	"github.com/thozoz/twitch-drops-miner-go/internal/inventory"
+	"github.com/thozoz/twitch-drops-miner-go/internal/model"
+	"github.com/thozoz/twitch-drops-miner-go/internal/pubsub"
+	statestore "github.com/thozoz/twitch-drops-miner-go/internal/state"
 )
 
 type mockIdentity struct {

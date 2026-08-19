@@ -4,7 +4,7 @@ import (
 	"math"
 	"time"
 
-	"tdm/internal/model"
+	"github.com/thozoz/twitch-drops-miner-go/internal/model"
 )
 
 // GetPriority returns a priority number for a given channel based on wantedGames.

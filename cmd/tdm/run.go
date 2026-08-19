@@ -11,17 +11,17 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
-	"tdm/internal/auth"
-	"tdm/internal/channel"
-	"tdm/internal/config"
-	"tdm/internal/daemon"
-	"tdm/internal/gql"
-	"tdm/internal/inventory"
-	"tdm/internal/ipc"
-	"tdm/internal/logging"
-	"tdm/internal/model"
-	"tdm/internal/pubsub"
-	"tdm/internal/session"
+	"github.com/thozoz/twitch-drops-miner-go/internal/auth"
+	"github.com/thozoz/twitch-drops-miner-go/internal/channel"
+	"github.com/thozoz/twitch-drops-miner-go/internal/config"
+	"github.com/thozoz/twitch-drops-miner-go/internal/daemon"
+	"github.com/thozoz/twitch-drops-miner-go/internal/gql"
+	"github.com/thozoz/twitch-drops-miner-go/internal/inventory"
+	"github.com/thozoz/twitch-drops-miner-go/internal/ipc"
+	"github.com/thozoz/twitch-drops-miner-go/internal/logging"
+	"github.com/thozoz/twitch-drops-miner-go/internal/model"
+	"github.com/thozoz/twitch-drops-miner-go/internal/pubsub"
+	"github.com/thozoz/twitch-drops-miner-go/internal/session"
 )
 
 var daemonMode bool

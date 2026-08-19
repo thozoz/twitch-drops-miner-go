@@ -7,9 +7,9 @@ import (
 
 	"github.com/sourcegraph/jsonrpc2"
 	"github.com/spf13/cobra"
-	"tdm/internal/config"
-	"tdm/internal/ipc"
-	"tdm/internal/logging"
+	"github.com/thozoz/twitch-drops-miner-go/internal/config"
+	"github.com/thozoz/twitch-drops-miner-go/internal/ipc"
+	"github.com/thozoz/twitch-drops-miner-go/internal/logging"
 )
 
 var stopTimeout int

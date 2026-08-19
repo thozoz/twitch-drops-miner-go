@@ -9,10 +9,10 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"tdm/internal/auth"
-	"tdm/internal/config"
-	"tdm/internal/logging"
-	"tdm/internal/pubsub"
+	"github.com/thozoz/twitch-drops-miner-go/internal/auth"
+	"github.com/thozoz/twitch-drops-miner-go/internal/config"
+	"github.com/thozoz/twitch-drops-miner-go/internal/logging"
+	"github.com/thozoz/twitch-drops-miner-go/internal/pubsub"
 )
 
 var pubsubChannelID string

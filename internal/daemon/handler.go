@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/sourcegraph/jsonrpc2"
-	"tdm/internal/ipc"
+	"github.com/thozoz/twitch-drops-miner-go/internal/ipc"
 )
 
 var _ ipc.Handler = (*Handler)(nil)

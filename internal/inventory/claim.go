@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"tdm/internal/gql"
+	"github.com/thozoz/twitch-drops-miner-go/internal/gql"
 )
 
 // GenerateClaimID constructs a deterministic drop claim ID in the format UserID#CampaignID#DropID.

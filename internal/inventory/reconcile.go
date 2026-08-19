@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"tdm/internal/gql"
+	"github.com/thozoz/twitch-drops-miner-go/internal/gql"
 )
 
 // FetchCurrentDropProgress queries Twitch GQL for the currently watched drop progress on a given channel.

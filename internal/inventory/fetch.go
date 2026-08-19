@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"tdm/internal/gql"
-	"tdm/internal/logging"
-	"tdm/internal/model"
+	"github.com/thozoz/twitch-drops-miner-go/internal/gql"
+	"github.com/thozoz/twitch-drops-miner-go/internal/logging"
+	"github.com/thozoz/twitch-drops-miner-go/internal/model"
 )
 
 // Fetcher coordinates fetching and assembling Twitch drops inventory.

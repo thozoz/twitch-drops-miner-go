@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"tdm/internal/config"
+	"github.com/thozoz/twitch-drops-miner-go/internal/config"
 )
 
 var forceInit bool

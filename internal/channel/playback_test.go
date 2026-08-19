@@ -12,7 +12,7 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tdm/internal/gql"
+	"github.com/thozoz/twitch-drops-miner-go/internal/gql"
 )
 
 type mockIdentity struct {

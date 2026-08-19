@@ -7,9 +7,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tdm/internal/inventory"
-	"tdm/internal/ipc"
-	"tdm/internal/model"
+	"github.com/thozoz/twitch-drops-miner-go/internal/inventory"
+	"github.com/thozoz/twitch-drops-miner-go/internal/ipc"
+	"github.com/thozoz/twitch-drops-miner-go/internal/model"
 )
 
 func TestHandler_ShutdownCancelsContext(t *testing.T) {

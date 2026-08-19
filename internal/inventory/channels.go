@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"sort"
 
-	"tdm/internal/gql"
-	"tdm/internal/logging"
-	"tdm/internal/model"
+	"github.com/thozoz/twitch-drops-miner-go/internal/gql"
+	"github.com/thozoz/twitch-drops-miner-go/internal/logging"
+	"github.com/thozoz/twitch-drops-miner-go/internal/model"
 )
 
 // ResolveCandidates discovers live streaming channels eligible for a campaign.
