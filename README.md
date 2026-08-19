@@ -69,6 +69,11 @@ To keep channel states up-to-date and detect drop completions instantly, a WebSo
 ```bash
 git clone https://github.com/thozoz/twitch-drops-miner-go.git
 cd twitch-drops-miner-go
+
+# Using Make (injects version and commit metadata):
+make build
+
+# Or direct Go build:
 go build -o tdm ./cmd/tdm
 ```
 
@@ -94,6 +99,36 @@ Follow the on-screen link (`https://www.twitch.tv/activate?device-code=...`) to 
 # Stop the daemon when finished
 ./tdm stop
 ```
+
+---
+
+### Docker Usage:
+
+For 24/7 unattended mining on Linux VPS, TrueNAS, Unraid, Synology, or Raspberry Pi:
+
+#### 1. Authenticate (one-time interactive login):
+
+```bash
+docker compose run --rm tdm auth login
+```
+
+#### 2. Start container in background:
+
+```bash
+docker compose up -d
+```
+
+#### 3. Check status & logs:
+
+```bash
+# Check status
+docker compose exec tdm tdm status
+
+# Follow logs
+docker compose logs -f
+```
+
+All credentials and state are persisted in the `./data` directory.
 
 ---
 

@@ -1,0 +1,6 @@
+.git
+.planning
+dist/
+*.exe
+*.log
+scratch/

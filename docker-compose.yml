@@ -1,0 +1,12 @@
+services:
+  tdm:
+    build: .
+    image: tdm:latest
+    container_name: tdm
+    restart: unless-stopped
+    volumes:
+      - ./data:/root/.local/state/tdm
+      - ./config:/root/.config/tdm
+    environment:
+      - TZ=UTC
+      # - TDM_LOG_LEVEL=info
