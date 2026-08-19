@@ -94,6 +94,8 @@ var runCmd = &cobra.Command{
 
 		statePath, _ := config.StateFilePath()
 
+		var supervisor *daemon.Supervisor
+
 		runWatch := func(wCtx context.Context, campaign inventory.DropsCampaign, ch model.Channel) (*inventory.TimedDrop, error) {
 			watcher := channel.NewWatcher(gqlClient, httpClient, authSession, userID)
 			pubsubClient := pubsub.NewClient(authSession)
@@ -101,6 +103,11 @@ var runCmd = &cobra.Command{
 			if statePath != "" {
 				sessionOpts = append(sessionOpts, session.WithStatePath(statePath))
 			}
+			sessionOpts = append(sessionOpts, session.WithOnProgress(func(d *inventory.TimedDrop) {
+				if supervisor != nil {
+					supervisor.UpdateDropProgress(d)
+				}
+			}))
 			watchSession := session.NewWatchSession(gqlClient, watcher, pubsubClient, userID, runLogger, sessionOpts...)
 			err := watchSession.Run(wCtx, campaign, ch)
 			drop := watchSession.ActiveDrop()
@@ -113,7 +120,7 @@ var runCmd = &cobra.Command{
 			exclude = cfg.Exclude
 		}
 
-		supervisor := daemon.NewProductionSupervisor(
+		supervisor = daemon.NewProductionSupervisor(
 			gqlClient,
 			userID,
 			runLogger,

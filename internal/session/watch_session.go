@@ -84,6 +84,16 @@ func WithStatePath(path string) SessionOption {
 	}
 }
 
+// ProgressCallback is called whenever drop progress minutes or active drop changes.
+type ProgressCallback func(drop *inventory.TimedDrop)
+
+// WithOnProgress configures a callback invoked on drop progress changes.
+func WithOnProgress(cb ProgressCallback) SessionOption {
+	return func(s *WatchSession) {
+		s.onProgress = cb
+	}
+}
+
 // WatchSession orchestrates channel watching, PubSub event handling, and GQL drop reconciliation/claiming.
 type WatchSession struct {
 	gqlClient           *gql.Client
@@ -97,6 +107,7 @@ type WatchSession struct {
 	confirmDelay        time.Duration
 	confirmPollInterval time.Duration
 	confirmRetries      int
+	onProgress          ProgressCallback
 
 	mu           sync.Mutex
 	claimMu      sync.Mutex
@@ -177,6 +188,10 @@ func (s *WatchSession) Run(ctx context.Context, campaign inventory.DropsCampaign
 		return ErrNoEarnableDrop
 	}
 
+	if s.onProgress != nil && activeDropCopy != nil {
+		s.onProgress(activeDropCopy)
+	}
+
 	if s.statePath != "" && activeDropCopy != nil {
 		if err := state.SaveRuntimeState(s.statePath, state.RuntimeState{
 			ActiveCampaignID:     campaign.ID,
@@ -249,16 +264,21 @@ func (s *WatchSession) Run(ctx context.Context, campaign inventory.DropsCampaign
 					activeDropCopy := s.activeDrop
 					s.mu.Unlock()
 
-					if changed && activeDropCopy != nil && s.statePath != "" {
-						if err := state.SaveRuntimeState(s.statePath, state.RuntimeState{
-							ActiveCampaignID:     campaign.ID,
-							ActiveDropID:         activeDropCopy.ID,
-							WatchingChannelID:    ch.ID,
-							WatchingChannelLogin: ch.Login,
-							CurrentMinutes:       activeDropCopy.CurrentMinutes,
-							LastSyncAt:           time.Now().UTC(),
-						}); err != nil {
-							s.logger.Warn("failed to save runtime state", "error", err)
+					if changed && activeDropCopy != nil {
+						if s.onProgress != nil {
+							s.onProgress(activeDropCopy)
+						}
+						if s.statePath != "" {
+							if err := state.SaveRuntimeState(s.statePath, state.RuntimeState{
+								ActiveCampaignID:     campaign.ID,
+								ActiveDropID:         activeDropCopy.ID,
+								WatchingChannelID:    ch.ID,
+								WatchingChannelLogin: ch.Login,
+								CurrentMinutes:       activeDropCopy.CurrentMinutes,
+								LastSyncAt:           time.Now().UTC(),
+							}); err != nil {
+								s.logger.Warn("failed to save runtime state", "error", err)
+							}
 						}
 					}
 
@@ -317,16 +337,21 @@ func (s *WatchSession) Run(ctx context.Context, campaign inventory.DropsCampaign
 						activeDropCopy := s.activeDrop
 						s.mu.Unlock()
 
-						if changed && activeDropCopy != nil && s.statePath != "" {
-							if err := state.SaveRuntimeState(s.statePath, state.RuntimeState{
-								ActiveCampaignID:     campaign.ID,
-								ActiveDropID:         activeDropCopy.ID,
-								WatchingChannelID:    ch.ID,
-								WatchingChannelLogin: ch.Login,
-								CurrentMinutes:       activeDropCopy.CurrentMinutes,
-								LastSyncAt:           time.Now().UTC(),
-							}); err != nil {
-								s.logger.Warn("failed to save runtime state", "error", err)
+						if changed && activeDropCopy != nil {
+							if s.onProgress != nil {
+								s.onProgress(activeDropCopy)
+							}
+							if s.statePath != "" {
+								if err := state.SaveRuntimeState(s.statePath, state.RuntimeState{
+									ActiveCampaignID:     campaign.ID,
+									ActiveDropID:         activeDropCopy.ID,
+									WatchingChannelID:    ch.ID,
+									WatchingChannelLogin: ch.Login,
+									CurrentMinutes:       activeDropCopy.CurrentMinutes,
+									LastSyncAt:           time.Now().UTC(),
+								}); err != nil {
+									s.logger.Warn("failed to save runtime state", "error", err)
+								}
 							}
 						}
 
@@ -462,6 +487,9 @@ func (s *WatchSession) claimAndAdvance(ctx context.Context, campaign *inventory.
 	nextDrop, ok := campaign.FirstEarnableDrop(time.Now(), &ch)
 	if ok {
 		s.activeDrop = nextDrop
+		if s.onProgress != nil {
+			s.onProgress(nextDrop)
+		}
 		s.logger.Info("advanced to next earnable drop",
 			slog.String("drop", nextDrop.Name),
 			slog.Int("required_minutes", nextDrop.RequiredMinutes),

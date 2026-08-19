@@ -190,6 +190,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			continue
 		}
 
+		initialDrop, _ := selected.FirstEarnableDrop(time.Now(), ch)
 		s.statusMu.Lock()
 		s.status = ipc.StatusResult{
 			Status:          "watching",
@@ -197,6 +198,13 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			ActiveGame:      selected.Game.Name,
 			WatchingChannel: ch.Name(),
 			LastSyncTime:    time.Now(),
+		}
+		if initialDrop != nil {
+			s.status.ActiveDrop = initialDrop.Name
+			s.status.CurrentMinutes = initialDrop.CurrentMinutes
+			s.status.RequiredMinutes = initialDrop.RequiredMinutes
+			s.status.ProgressPercent = initialDrop.Progress() * 100
+			s.status.ETASeconds = int64(initialDrop.RemainingMinutes()) * 60
 		}
 		s.statusMu.Unlock()
 
@@ -281,4 +289,19 @@ func (s *Supervisor) UpdatePriority(ctx context.Context, p ipc.PriorityParams) (
 	return ipc.PriorityResult{
 		Priority: append([]string(nil), s.priority...),
 	}, nil
+}
+
+// UpdateDropProgress updates the live active drop progress in the supervisor status.
+func (s *Supervisor) UpdateDropProgress(drop *inventory.TimedDrop) {
+	if drop == nil {
+		return
+	}
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+	s.status.ActiveDrop = drop.Name
+	s.status.CurrentMinutes = drop.CurrentMinutes
+	s.status.RequiredMinutes = drop.RequiredMinutes
+	s.status.ProgressPercent = drop.Progress() * 100
+	s.status.ETASeconds = int64(drop.RemainingMinutes()) * 60
+	s.status.LastSyncTime = time.Now()
 }
