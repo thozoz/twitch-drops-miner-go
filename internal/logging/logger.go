@@ -104,3 +104,54 @@ func New(cfg *config.Config) *slog.Logger {
 	}
 	return l
 }
+
+// NewWithExtraWriter creates a new structured logger configured from the given Config,
+// additionally teeing output to the provided extra io.Writer if non-nil.
+func NewWithExtraWriter(cfg *config.Config, extra io.Writer) *slog.Logger {
+	var logLevel slog.Level = slog.LevelInfo
+	var unrecognizedLevel string
+
+	if cfg != nil && cfg.LogLevel != "" {
+		if lvl, ok := parseLevel(cfg.LogLevel); ok {
+			logLevel = lvl
+		} else {
+			unrecognizedLevel = cfg.LogLevel
+		}
+	}
+
+	opts := &slog.HandlerOptions{
+		Level: logLevel,
+	}
+
+	var w io.Writer = os.Stderr
+	if cfg != nil && cfg.LogFile != "" {
+		lj := &lumberjack.Logger{
+			Filename:   cfg.LogFile,
+			MaxSize:    10, // megabytes
+			MaxBackups: 3,
+			MaxAge:     28, // days
+		}
+		w = lj
+		closerMu.Lock()
+		activeCloser = lj
+		closerMu.Unlock()
+	}
+
+	if extra != nil {
+		w = io.MultiWriter(w, extra)
+	}
+
+	var handler slog.Handler
+	if cfg != nil && strings.ToLower(strings.TrimSpace(cfg.LogFormat)) == "json" {
+		handler = slog.NewJSONHandler(w, opts)
+	} else {
+		handler = slog.NewTextHandler(w, opts)
+	}
+
+	l := slog.New(handler)
+	if unrecognizedLevel != "" {
+		l.Warn("unrecognized log_level, defaulting to info", "provided", unrecognizedLevel)
+	}
+	return l
+}
+

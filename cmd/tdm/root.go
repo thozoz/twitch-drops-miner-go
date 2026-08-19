@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"tdm/internal/config"
 	"tdm/internal/logging"
 )
@@ -40,6 +41,7 @@ var (
 	configFile string
 	logLevel   string
 	logFormat  string
+	logFile    string
 )
 
 var rootCmd = &cobra.Command{
@@ -58,6 +60,9 @@ var rootCmd = &cobra.Command{
 		}
 		if cmd.Flags().Changed("log-format") {
 			cfg.LogFormat = logFormat
+		}
+		if cmd.Flags().Changed("log-file") {
+			cfg.LogFile = logFile
 		}
 
 		logger := logging.New(cfg)
@@ -81,6 +86,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&configFile, "config", "", "Path to configuration file")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
 	rootCmd.PersistentFlags().StringVar(&logFormat, "log-format", "text", "Log format (text, json)")
+	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", "", "Path to log file (empty = stderr)")
 }
 
 func newHTTPClient() *resty.Client {
@@ -96,9 +102,32 @@ func newHTTPClient() *resty.Client {
 	return client
 }
 
-// Execute runs the root command and returns an exit code.
-func Execute() int {
-	if err := rootCmd.Execute(); err != nil {
+func resetCommandFlags(cmd *cobra.Command) {
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		_ = f.Value.Set(f.DefValue)
+		f.Changed = false
+	})
+	cmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
+		_ = f.Value.Set(f.DefValue)
+		f.Changed = false
+	})
+	for _, c := range cmd.Commands() {
+		resetCommandFlags(c)
+	}
+}
+
+func resetCommandContexts(cmd *cobra.Command, ctx context.Context) {
+	cmd.SetContext(ctx)
+	for _, c := range cmd.Commands() {
+		resetCommandContexts(c, ctx)
+	}
+}
+
+// ExecuteContext runs the root command with the given context and returns an exit code.
+func ExecuteContext(ctx context.Context) int {
+	resetCommandFlags(rootCmd)
+	resetCommandContexts(rootCmd, ctx)
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		var cmdErr *CommandError
 		if errors.As(err, &cmdErr) {
 			return cmdErr.Code
@@ -107,3 +136,9 @@ func Execute() int {
 	}
 	return ExitOK
 }
+
+// Execute runs the root command and returns an exit code.
+func Execute() int {
+	return ExecuteContext(context.Background())
+}
+

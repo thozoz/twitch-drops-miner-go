@@ -1,7 +1,12 @@
 package config
 
 import (
+	"fmt"
+	"os"
+	"os/user"
 	"path/filepath"
+	"runtime"
+	"strings"
 
 	"github.com/adrg/xdg"
 )
@@ -50,5 +55,32 @@ func OperationsOverridePath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, "operations.json"), nil
+}
+
+// SocketPath returns the IPC socket/pipe address for the current operating system.
+// On Windows it returns a named pipe path (\\.\pipe\tdm-<username>).
+// On non-Windows it returns $XDG_RUNTIME_DIR/tdm.sock or /tmp/tdm-<uid>/tdm.sock fallback.
+func SocketPath() (string, error) {
+	if runtime.GOOS == "windows" {
+		username := "default"
+		if u, err := user.Current(); err == nil && u.Username != "" {
+			sanitized := strings.Map(func(r rune) rune {
+				if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+					return r
+				}
+				return '-'
+			}, u.Username)
+			sanitized = strings.Trim(sanitized, "-")
+			if sanitized != "" {
+				username = sanitized
+			}
+		}
+		return fmt.Sprintf(`\\.\pipe\tdm-%s`, username), nil
+	}
+
+	if xdg.RuntimeDir != "" {
+		return filepath.Join(xdg.RuntimeDir, "tdm.sock"), nil
+	}
+	return filepath.Join(os.TempDir(), fmt.Sprintf("tdm-%d", os.Getuid()), "tdm.sock"), nil
 }
 

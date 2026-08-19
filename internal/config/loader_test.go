@@ -4,8 +4,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
+	"github.com/adrg/xdg"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -94,4 +96,19 @@ func TestPaths(t *testing.T) {
 	oFile, err := OperationsOverridePath()
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(cDir, "operations.json"), oFile)
+
+	sock, err := SocketPath()
+	require.NoError(t, err)
+	assert.NotEmpty(t, sock)
+
+	if runtime.GOOS != "windows" {
+		tmpRuntime := t.TempDir()
+		t.Setenv("XDG_RUNTIME_DIR", tmpRuntime)
+		xdg.Reload()
+		t.Cleanup(func() { xdg.Reload() })
+
+		sockWithRuntime, err := SocketPath()
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(tmpRuntime, "tdm.sock"), sockWithRuntime)
+	}
 }

@@ -3,13 +3,16 @@ module tdm
 go 1.26.4
 
 require (
+	github.com/Microsoft/go-winio v0.6.2
 	github.com/adrg/xdg v0.5.3
+	github.com/coder/websocket v1.8.15
 	github.com/go-resty/resty/v2 v2.17.2
 	github.com/knadh/koanf/parsers/json v1.0.1
 	github.com/knadh/koanf/providers/confmap v1.0.1
 	github.com/knadh/koanf/providers/env/v2 v2.0.1
 	github.com/knadh/koanf/providers/file v1.2.1
 	github.com/knadh/koanf/v2 v2.3.6
+	github.com/sourcegraph/jsonrpc2 v0.2.2
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.0
 	golang.org/x/sync v0.22.0
@@ -17,7 +20,6 @@ require (
 )
 
 require (
-	github.com/coder/websocket v1.8.15 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
