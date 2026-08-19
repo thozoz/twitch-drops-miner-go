@@ -40,15 +40,12 @@ func TestBind_StaleSocketReplaced(t *testing.T) {
 	tempDir := t.TempDir()
 	addr := filepath.Join(tempDir, "stale.sock")
 
-	ln1, err := Bind(addr)
-	require.NoError(t, err)
+	// Create a dead socket/file simulating a crashed process
+	require.NoError(t, os.WriteFile(addr, []byte("stale dead socket"), 0600))
+	_, err := os.Stat(addr)
+	require.NoError(t, err, "stale file should exist")
 
-	// Close listener WITHOUT removing the file (simulating SIGKILL leaving stale socket file)
-	require.NoError(t, ln1.Close())
-	_, err = os.Stat(addr)
-	require.NoError(t, err, "socket file should still exist")
-
-	// Second Bind should detect stale socket, remove it, and bind successfully
+	// Bind should detect stale socket, remove it, and bind successfully
 	ln2, err := Bind(addr)
 	require.NoError(t, err)
 	defer func() { _ = Unbind(ln2, addr) }()
