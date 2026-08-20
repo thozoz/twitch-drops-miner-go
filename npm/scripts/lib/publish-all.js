@@ -25,7 +25,11 @@ function runNpm(args, options) {
   return execFileSync('npm', args, options);
 }
 
-function publishAll({ npmRoot, dryRun = false, log = console.log }) {
+// An OTP can be supplied out-of-band (NPM_OTP=123456) for accounts whose 2FA level
+// is "Authorization and writes". npm would normally prompt for it interactively, but
+// the bootstrap script is often run from a non-TTY shell where no prompt is possible.
+// Accounts set to "Authorization only" need nothing here.
+function publishAll({ npmRoot, dryRun = false, log = console.log, otp = process.env.NPM_OTP }) {
   const dirs = [...mapping.map((row) => row.dir), 'dropminer'];
 
   for (const dir of dirs) {
@@ -51,7 +55,10 @@ function publishAll({ npmRoot, dryRun = false, log = console.log }) {
     }
 
     try {
-      runNpm(['publish', '--access', 'public'], {
+      const publishArgs = ['publish', '--access', 'public'];
+      if (otp) publishArgs.push('--otp', otp);
+
+      runNpm(publishArgs, {
         cwd: path.join(npmRoot, dir),
         stdio: 'inherit',
       });
