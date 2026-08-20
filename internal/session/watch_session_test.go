@@ -743,3 +743,176 @@ func TestWatchSession_OfflineGraceTimeout(t *testing.T) {
 		t.Fatal("timed out waiting for offline grace timeout")
 	}
 }
+
+// Test 8: Zero-progress watchdog fires when the mock GQL server reports a dropID that never
+// matches the session's active drop (the exact reported failure mode: progress calls succeed
+// but never apply to the tracked drop, so the offline path never fires either).
+func TestWatchSession_NoProgressWatchdogFires(t *testing.T) {
+	httpServer, wsServer, state := setupMockServers(t)
+	defer httpServer.Close()
+	defer wsServer.Close()
+
+	reg, _, err := gql.LoadRegistry("")
+	require.NoError(t, err)
+
+	ident := &mockIdentity{token: "mock_token"}
+	httpClient := resty.NewWithClient(httpServer.Client()).SetHostURL(httpServer.URL)
+	gqlClient := gql.NewClient(reg, ident, ident, httpClient, gql.WithMinRetryDelay(1*time.Millisecond), gql.WithLimiter(gql.NewRateLimiter(1000, time.Millisecond)))
+	watcher := channel.NewWatcher(gqlClient, httpClient, ident, 12345)
+
+	// PubSub disabled (nil pubsubClient): the watchdog's GQL-reconcile path alone is sufficient
+	// to exercise it and keeps the test deterministic (no WS timing races).
+	session := NewWatchSession(
+		gqlClient,
+		watcher,
+		nil,
+		12345,
+		nil,
+		WithReconcileInterval(20*time.Millisecond),
+		WithNoProgressTimeout(80*time.Millisecond),
+		WithOfflineGrace(10*time.Second), // large enough to guarantee it never fires first
+	)
+
+	game := model.NewGame("game-1", "Test Game", "test-game")
+	ch := model.Channel{
+		ID:           "ch_101",
+		Login:        "teststreamer",
+		BroadcastID:  "bcast_101",
+		Online:       true,
+		Game:         &game,
+		DropsEnabled: true,
+	}
+
+	drop := inventory.TimedDrop{
+		ID:              "drop-1",
+		Name:            "Tier 1 Reward",
+		RequiredMinutes: 10,
+		CurrentMinutes:  0,
+		StartsAt:        time.Now().Add(-1 * time.Hour),
+		EndsAt:          time.Now().Add(24 * time.Hour),
+		Benefits: []inventory.Benefit{
+			{ID: "b-1", Name: "Reward 1", Type: inventory.BenefitBadge},
+		},
+	}
+	camp := buildTestCampaign(game, drop)
+
+	// Server always reports a dropID that never matches the active drop's ID ("drop-1"), so
+	// ReconcileMinutes's `changed` signal never fires and lastProgressAt never resets.
+	state.mu.Lock()
+	state.currentDropID = "drop-mismatched"
+	state.hasActiveDrop = true
+	state.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- session.Run(ctx, camp, ch)
+	}()
+
+	select {
+	case err := <-runErr:
+		require.ErrorIs(t, err, ErrNoProgress)
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for no-progress watchdog to fire")
+	}
+}
+
+// Test 9: Zero-progress watchdog never fires while the active drop's minutes keep advancing on
+// every tick, proving the watchdog does not cause false-positive channel churn on a healthy
+// stream. The timeout window (70ms) is deliberately shorter than the full drive sequence
+// (5 increments x 30ms = 150ms), so if the watchdog were mis-wired to fire regardless of
+// progress, this test would time out or return ErrNoProgress instead of completing the claim.
+func TestWatchSession_NoProgressWatchdogDoesNotFireDuringProgress(t *testing.T) {
+	httpServer, wsServer, state := setupMockServers(t)
+	defer httpServer.Close()
+	defer wsServer.Close()
+
+	reg, _, err := gql.LoadRegistry("")
+	require.NoError(t, err)
+
+	ident := &mockIdentity{token: "mock_token"}
+	httpClient := resty.NewWithClient(httpServer.Client()).SetHostURL(httpServer.URL)
+	gqlClient := gql.NewClient(reg, ident, ident, httpClient, gql.WithMinRetryDelay(1*time.Millisecond), gql.WithLimiter(gql.NewRateLimiter(1000, time.Millisecond)))
+	watcher := channel.NewWatcher(gqlClient, httpClient, ident, 12345)
+
+	session := NewWatchSession(
+		gqlClient,
+		watcher,
+		nil,
+		12345,
+		nil,
+		WithReconcileInterval(20*time.Millisecond),
+		WithNoProgressTimeout(70*time.Millisecond),
+		WithConfirmDelay(10*time.Millisecond),
+		WithConfirmPollInterval(10*time.Millisecond),
+	)
+
+	game := model.NewGame("game-1", "Test Game", "test-game")
+	ch := model.Channel{
+		ID:           "ch_101",
+		Login:        "teststreamer",
+		BroadcastID:  "bcast_101",
+		Online:       true,
+		Game:         &game,
+		DropsEnabled: true,
+	}
+
+	drop := inventory.TimedDrop{
+		ID:              "drop-1",
+		Name:            "Tier 1 Reward",
+		RequiredMinutes: 10,
+		CurrentMinutes:  0,
+		StartsAt:        time.Now().Add(-1 * time.Hour),
+		EndsAt:          time.Now().Add(24 * time.Hour),
+		Benefits: []inventory.Benefit{
+			{ID: "b-1", Name: "Reward 1", Type: inventory.BenefitBadge},
+		},
+	}
+	camp := buildTestCampaign(game, drop)
+
+	// state.currentDropID stays at its default ("drop-1"), matching the active drop's ID.
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		state.mu.Lock()
+		state.currentMinutes = 2
+		state.mu.Unlock()
+
+		time.Sleep(30 * time.Millisecond)
+		state.mu.Lock()
+		state.currentMinutes = 4
+		state.mu.Unlock()
+
+		time.Sleep(30 * time.Millisecond)
+		state.mu.Lock()
+		state.currentMinutes = 6
+		state.mu.Unlock()
+
+		time.Sleep(30 * time.Millisecond)
+		state.mu.Lock()
+		state.currentMinutes = 8
+		state.mu.Unlock()
+
+		time.Sleep(30 * time.Millisecond)
+		state.mu.Lock()
+		state.currentMinutes = 10
+		state.mu.Unlock()
+
+		time.Sleep(30 * time.Millisecond)
+		state.mu.Lock()
+		state.hasActiveDrop = false // Drop finished, confirm loop completes
+		state.mu.Unlock()
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	err = session.Run(ctx, camp, ch)
+	require.NoError(t, err)
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	require.Len(t, state.claimCalls, 1)
+	assert.Equal(t, "12345#camp-1#drop-1", state.claimCalls[0])
+}
