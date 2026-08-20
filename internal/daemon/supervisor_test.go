@@ -2,12 +2,16 @@ package daemon
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/thozoz/twitch-drops-miner-go/internal/config"
 	"github.com/thozoz/twitch-drops-miner-go/internal/inventory"
 	"github.com/thozoz/twitch-drops-miner-go/internal/ipc"
 	"github.com/thozoz/twitch-drops-miner-go/internal/model"
@@ -276,4 +280,94 @@ func TestSupervisor_NoEligibleCampaign_IdlesAndRetries(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("supervisor Run did not terminate promptly")
 	}
+}
+
+func newPriorityTestSupervisor(t *testing.T, opts ...SupervisorOption) *Supervisor {
+	t.Helper()
+	return NewSupervisor(
+		func(ctx context.Context) ([]inventory.DropsCampaign, error) { return nil, nil },
+		func(ctx context.Context, c inventory.DropsCampaign) (*model.Channel, error) { return nil, nil },
+		nil,
+		[]string{"Existing"},
+		nil,
+		opts...,
+	)
+}
+
+func TestSupervisor_UpdatePriorityPersistsToConfiguredPath(t *testing.T) {
+	// The regression this exists for: a daemon started with --config must write
+	// back to THAT file, not to the default XDG location.
+	explicitPath := filepath.Join(t.TempDir(), "explicit", "config.json")
+	s := newPriorityTestSupervisor(t, WithConfigPath(explicitPath))
+
+	res, err := s.UpdatePriority(context.Background(), ipc.PriorityParams{
+		Action: ipc.PriorityAdd,
+		Games:  []string{"Rust"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Existing", "Rust"}, res.Priority)
+
+	cfg, err := config.Load(explicitPath)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Existing", "Rust"}, cfg.Priority,
+		"priority must land in the config file the daemon was given")
+}
+
+func TestSupervisor_UpdatePrioritySetPersists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	s := newPriorityTestSupervisor(t, WithConfigPath(path))
+
+	_, err := s.UpdatePriority(context.Background(), ipc.PriorityParams{
+		Action: ipc.PrioritySet,
+		Games:  []string{"Fortnite", "Rust"},
+	})
+	require.NoError(t, err)
+
+	cfg, err := config.Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Fortnite", "Rust"}, cfg.Priority)
+}
+
+func TestSupervisor_UpdatePriorityListDoesNotWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	s := newPriorityTestSupervisor(t, WithConfigPath(path))
+
+	_, err := s.UpdatePriority(context.Background(), ipc.PriorityParams{Action: ipc.PriorityList})
+	require.NoError(t, err)
+
+	_, statErr := os.Stat(path)
+	assert.ErrorIs(t, statErr, os.ErrNotExist, "a read-only query must not create a config file")
+}
+
+func TestSupervisor_UpdatePriorityRollsBackOnWriteFailure(t *testing.T) {
+	original := persistPriority
+	t.Cleanup(func() { persistPriority = original })
+	persistPriority = func(path string, priority []string) error {
+		return errors.New("disk on fire")
+	}
+
+	s := newPriorityTestSupervisor(t, WithConfigPath("/irrelevant/config.json"))
+
+	_, err := s.UpdatePriority(context.Background(), ipc.PriorityParams{
+		Action: ipc.PriorityAdd,
+		Games:  []string{"Rust"},
+	})
+	require.Error(t, err, "a failed disk write must not report success")
+
+	// In-memory state must match what is on disk, or the operator is told a lie
+	// that evaporates at restart.
+	res, err := s.UpdatePriority(context.Background(), ipc.PriorityParams{Action: ipc.PriorityList})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Existing"}, res.Priority, "failed write must roll the change back")
+}
+
+func TestSupervisor_UpdatePriorityWithoutConfigPathStaysInMemory(t *testing.T) {
+	s := newPriorityTestSupervisor(t)
+
+	res, err := s.UpdatePriority(context.Background(), ipc.PriorityParams{
+		Action: ipc.PriorityAdd,
+		Games:  []string{"Rust"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Existing", "Rust"}, res.Priority)
 }

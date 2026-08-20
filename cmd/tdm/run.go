@@ -120,6 +120,16 @@ var runCmd = &cobra.Command{
 			exclude = cfg.Exclude
 		}
 
+		// Resolve here, where the --config flag is actually known, and hand the
+		// result to the supervisor. Letting the supervisor derive its own path
+		// would persist priority changes into a different file than the one this
+		// daemon loaded whenever --config is used.
+		resolvedConfigPath, err := config.ResolveConfigPath(configFile)
+		if err != nil {
+			logger.Error("failed to resolve config file path", "error", err)
+			return &CommandError{Code: ExitError, Err: err}
+		}
+
 		supervisor = daemon.NewProductionSupervisor(
 			gqlClient,
 			userID,
@@ -127,6 +137,7 @@ var runCmd = &cobra.Command{
 			priority,
 			exclude,
 			daemon.WithWatchRunner(runWatch),
+			daemon.WithConfigPath(resolvedConfigPath),
 		)
 
 		handler := daemon.NewHandler(supervisor, runCancel, ring)

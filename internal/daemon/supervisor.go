@@ -3,11 +3,13 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"sync"
 	"time"
 
+	"github.com/thozoz/twitch-drops-miner-go/internal/config"
 	"github.com/thozoz/twitch-drops-miner-go/internal/gql"
 	"github.com/thozoz/twitch-drops-miner-go/internal/inventory"
 	"github.com/thozoz/twitch-drops-miner-go/internal/ipc"
@@ -32,6 +34,22 @@ func WithWatchRunner(fn func(ctx context.Context, campaign inventory.DropsCampai
 	}
 }
 
+// WithConfigPath tells the Supervisor which config file to persist priority
+// changes into. It must be the same file the running daemon loaded — the caller
+// resolves it, rather than the Supervisor re-deriving a path that could differ
+// from the one actually in use.
+//
+// When unset, priority changes stay in memory only.
+func WithConfigPath(path string) SupervisorOption {
+	return func(s *Supervisor) {
+		s.configPath = path
+	}
+}
+
+// persistPriority is the hook used to write the priority list to disk. It is a
+// field so tests can substitute a failing writer without touching the filesystem.
+var persistPriority = config.SavePriority
+
 // Supervisor manages the long-lived campaign/channel selection and watch loop.
 type Supervisor struct {
 	fetchInventory  func(ctx context.Context) ([]inventory.DropsCampaign, error)
@@ -40,6 +58,7 @@ type Supervisor struct {
 	logger          *slog.Logger
 	reselectBackoff time.Duration
 	startedAt       time.Time
+	configPath      string
 
 	priorityMu sync.RWMutex
 	priority   []string
@@ -266,6 +285,8 @@ func (s *Supervisor) UpdatePriority(ctx context.Context, p ipc.PriorityParams) (
 	s.priorityMu.Lock()
 	defer s.priorityMu.Unlock()
 
+	previous := append([]string(nil), s.priority...)
+
 	switch p.Action {
 	case ipc.PriorityList:
 		// read-only no-op
@@ -284,6 +305,20 @@ func (s *Supervisor) UpdatePriority(ctx context.Context, p ipc.PriorityParams) (
 		}
 	case ipc.PrioritySet:
 		s.priority = append([]string(nil), p.Games...)
+	}
+
+	// Persist mutations so they survive a restart. Without this the change lives
+	// only in this process and is silently lost on `tdm stop` / reboot.
+	if p.Action != ipc.PriorityList && s.configPath != "" {
+		if err := persistPriority(s.configPath, s.priority); err != nil {
+			// Roll back, so what the caller is told matches both what is on disk
+			// and what this process will act on. Reporting success here would
+			// leave the operator believing a change that vanishes at restart.
+			s.priority = previous
+			s.logger.Error("failed to persist priority to config",
+				"path", s.configPath, "error", err)
+			return ipc.PriorityResult{}, fmt.Errorf("failed to persist priority to %s: %w", s.configPath, err)
+		}
 	}
 
 	return ipc.PriorityResult{
