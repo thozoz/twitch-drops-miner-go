@@ -10,6 +10,8 @@ This application allows you to AFK mine timed Twitch drops without having to wor
 
 This repository is a lightweight, headless-first reimplementation of [DevilXD/TwitchDropsMiner](https://github.com/DevilXD/TwitchDropsMiner) written from scratch in Go.
 
+*Not affiliated with, endorsed by, or sponsored by Twitch Interactive, Inc.*
+
 ---
 
 ### How It Works:
@@ -36,34 +38,34 @@ To keep channel states up-to-date and detect drop completions instantly, a WebSo
 
 ### Architecture:
 
-```
-                    ┌──────────────────────────────────────────────────┐
-                    │                   tdm CLI                        │
-                    │   (status / logs -f / priority / stop / start)   │
-                    └────────────────────────┬─────────────────────────┘
-                                             │ JSON-RPC 2.0 (Unix Socket / Named Pipe)
-                                             ▼
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                                 tdm Daemon (Supervisor)                                │
-│                                                                                        │
-│   ┌──────────────────────┐      ┌─────────────────────┐      ┌─────────────────────┐   │
-│   │   Campaign Selector  │ ───► │   Channel Resolver  │ ───► │    WatchSession     │   │
-│   │  (Priority/Exclude)  │      │     (Live / ACL)    │      │ (Progress & Claim)  │   │
-│   └──────────────────────┘      └─────────────────────┘      └──────────┬──────────┘   │
-│                                                                         │              │
-│       ┌─────────────────────────────────────────────────────────────────┼──────────┐   │
-│       ▼                                                                 ▼          ▼   │
-│ ┌───────────┐                                                     ┌──────────┐ ┌─────┐ │
-│ │   Spade   │ (~59s Beacon)                                       │  PubSub  │ │ GQL │ │
-│ │  Watcher  │                                                     │  Client  │ │ Eng │ │
-│ └─────┬─────┘                                                     └────┬─────┘ └──┬──┘ │
-└───────┼────────────────────────────────────────────────────────────────┼──────────┼────┘
-        ▼                                                                ▼          ▼
- ┌──────────────┐                                                ┌───────────────┐ ┌────────┐
- │ Spade Beacon │                                                │ PubSub WS v1  │ │ GQL    │
- │ (Video-Free) │                                                │ (Drop Events) │ │ (Auth) │
- └──────────────┘                                                └───────────────┘ └────────┘
-                                         Twitch Edge
+```mermaid
+flowchart TD
+    CLI["tdm CLI<br/>status / logs / priority / stop"]
+
+    subgraph D["tdm Daemon — Supervisor"]
+        direction TB
+        SEL["Campaign Selector<br/>priority · exclude"]
+        RES["Channel Resolver<br/>live · ACL"]
+        WS["WatchSession<br/>progress · claim"]
+        SEL --> RES --> WS
+    end
+
+    CLI -->|"JSON-RPC 2.0<br/>Unix socket · named pipe"| D
+
+    WS --> SPADE["Spade Watcher<br/>~59s beacon"]
+    WS --> PS["PubSub Client"]
+    WS --> GQL["GQL Engine"]
+
+    subgraph EDGE["Twitch Edge"]
+        direction LR
+        T1["Spade Beacon<br/>video-free"]
+        T2["PubSub WS v1<br/>drop events"]
+        T3["GQL<br/>authenticated"]
+    end
+
+    SPADE --> T1
+    PS --> T2
+    GQL --> T3
 ```
 
 ---
@@ -72,7 +74,28 @@ To keep channel states up-to-date and detect drop completions instantly, a WebSo
 
 #### 1. Install:
 
-**Option A — prebuilt binary** (no Go toolchain required):
+**Option A — Docker** (no toolchain, no Node):
+
+The published multi-arch image `ghcr.io/thozoz/tdm` (`linux/amd64`, `linux/arm64`) needs no clone, no build, and no Go toolchain:
+
+```bash
+docker pull ghcr.io/thozoz/tdm:latest
+```
+
+See [Docker Usage](#docker-usage) below for the full authenticate-then-run flow.
+
+**Option B — Install on Host (npm)** (requires Node.js 18+):
+
+```bash
+npm install -g @thozoz/dropminer
+tdm auth login
+tdm start
+```
+
+Installs the `tdm` command — the package and the command are deliberately named differently, the same way the `typescript` package installs `tsc`.
+This complements (does not replace) the binary/`go install` methods below.
+
+**Option C — prebuilt binary** (no Go toolchain required):
 
 Download the archive for your platform from the [latest release](https://github.com/thozoz/twitch-drops-miner-go/releases/latest), verify it against `checksums.txt`, then:
 
@@ -81,13 +104,13 @@ tar -xzf tdm-*-linux-amd64.tar.gz
 sudo install -m 755 tdm /usr/local/bin/tdm
 ```
 
-**Option B — `go install`** (requires Go 1.26+):
+**Option D — `go install`** (requires Go 1.26+):
 
 ```bash
 go install github.com/thozoz/twitch-drops-miner-go/cmd/tdm@latest
 ```
 
-**Option C — build from source** (requires Go 1.26+):
+**Option E — build from source** (requires Go 1.26+):
 
 ```bash
 git clone https://github.com/thozoz/twitch-drops-miner-go.git
@@ -99,19 +122,6 @@ make build
 # Or direct Go build:
 go build -o tdm ./cmd/tdm
 ```
-
-**Option D — Install on Host (npm)** (requires Node.js 18+):
-
-```bash
-npm install -g @thozoz/dropminer
-tdm auth login
-tdm start
-```
-
-Installs the `tdm` command — the package and the command are deliberately named differently, the same way the `typescript` package installs `tsc`.
-This complements (does not replace) the binary/`go install` methods above.
-
-*Not affiliated with, endorsed by, or sponsored by Twitch Interactive, Inc.*
 
 #### 2. Log in to your Twitch account:
 
