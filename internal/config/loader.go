@@ -46,23 +46,24 @@ func Load(explicitPath string) (*Config, error) {
 		return nil, err
 	}
 
-	// 2. Config File
-	targetPath := explicitPath
-	if targetPath == "" {
-		p, err := ConfigFilePath()
-		if err == nil {
-			if _, statErr := os.Stat(p); statErr == nil {
-				targetPath = p
-			}
-		}
+	// 2. Config File — --config flag, else TDM_CONFIG, else the default XDG path.
+	targetPath, err := ResolveConfigPath(explicitPath)
+	if err != nil {
+		return nil, err
 	}
+
+	// A path the operator named explicitly must exist: silently falling back to
+	// defaults is exactly the failure mode that made TDM_CONFIG look broken.
+	// A missing file at the default location is normal and simply means
+	// "no config yet".
+	explicitlyRequested := explicitPath != "" || os.Getenv("TDM_CONFIG") != ""
 
 	if targetPath != "" {
 		if _, statErr := os.Stat(targetPath); statErr == nil {
 			if err := k.Load(file.Provider(targetPath), json.Parser()); err != nil {
 				return nil, err
 			}
-		} else if explicitPath != "" {
+		} else if explicitlyRequested {
 			return nil, statErr
 		}
 	}
@@ -71,7 +72,13 @@ func Load(explicitPath string) (*Config, error) {
 	if err := k.Load(env.Provider(".", env.Opt{
 		Prefix: "TDM_",
 		TransformFunc: func(k, v string) (string, any) {
-			return strings.ToLower(strings.TrimPrefix(k, "TDM_")), v
+			key := strings.ToLower(strings.TrimPrefix(k, "TDM_"))
+			// TDM_CONFIG selects which file to read (handled above); it is not
+			// itself a config value. Drop it so it cannot shadow a real key.
+			if key == "config" {
+				return "", nil
+			}
+			return key, v
 		},
 	}), nil); err != nil {
 		return nil, err
