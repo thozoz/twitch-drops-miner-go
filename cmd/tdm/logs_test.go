@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +14,26 @@ import (
 	"github.com/thozoz/twitch-drops-miner-go/internal/config"
 	"github.com/thozoz/twitch-drops-miner-go/internal/ipc"
 )
+
+// syncBuffer is a bytes.Buffer safe for concurrent use. Follow mode writes log
+// lines from the JSON-RPC notification goroutine while the test reads the
+// captured output, so a bare bytes.Buffer races between the two.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
+}
 
 type mockLogsHandler struct {
 	getLogsResult ipc.GetLogsResult
@@ -163,7 +184,7 @@ func TestLogsCmd_FollowMode(t *testing.T) {
 		<-serverDone2
 	}()
 
-	buf := new(bytes.Buffer)
+	buf := new(syncBuffer)
 	rootCmd.SetOut(buf)
 	rootCmd.SetErr(buf)
 

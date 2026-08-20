@@ -13,9 +13,14 @@ import (
 )
 
 func TestDefaultConfig(t *testing.T) {
-	// Set XDG_CONFIG_HOME to a temporary empty directory to ensure no config.json is picked up
+	// Set XDG_CONFIG_HOME to a temporary empty directory to ensure no config.json is picked up.
+	// xdg resolves its paths once at package init, so the env change only takes effect after a
+	// Reload — without it this test reads the developer's real ~/.config/tdm/config.json and
+	// fails on any machine that actually has one.
 	tempDir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", tempDir)
+	xdg.Reload()
+	t.Cleanup(func() { xdg.Reload() })
 
 	cfg, err := Load("")
 	require.NoError(t, err)
