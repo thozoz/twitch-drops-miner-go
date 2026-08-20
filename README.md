@@ -39,31 +39,26 @@ To keep channel states up-to-date and detect drop completions instantly, a WebSo
 ### Architecture:
 
 ```mermaid
-flowchart TD
-    CLI["tdm CLI<br/>status / logs / priority / stop"]
+flowchart LR
+    CLI["tdm CLI<br/>status · logs · priority · stop"]
 
     subgraph D["tdm Daemon — Supervisor"]
-        direction TB
-        SEL["Campaign Selector<br/>priority · exclude"]
-        RES["Channel Resolver<br/>live · ACL"]
-        WS["WatchSession<br/>progress · claim"]
-        SEL --> RES --> WS
+        SEL["Campaign Selector<br/>priority · exclude"] --> RES["Channel Resolver<br/>live · ACL"] --> WS["WatchSession<br/>progress · claim"]
     end
 
-    CLI -->|"JSON-RPC 2.0<br/>Unix socket · named pipe"| D
+    CLI -->|"JSON-RPC 2.0 · Unix socket / named pipe"| SEL
 
-    WS --> SPADE["Spade Watcher<br/>~59s beacon"]
+    WS --> SPADE["Spade Watcher"]
     WS --> PS["PubSub Client"]
     WS --> GQL["GQL Engine"]
 
     subgraph EDGE["Twitch Edge"]
-        direction LR
         T1["Spade Beacon<br/>video-free"]
         T2["PubSub WS v1<br/>drop events"]
         T3["GQL<br/>authenticated"]
     end
 
-    SPADE --> T1
+    SPADE -->|"~59s"| T1
     PS --> T2
     GQL --> T3
 ```
