@@ -143,31 +143,57 @@ tdm stop
 
 ### Docker Usage:
 
-For 24/7 unattended mining on Linux VPS, TrueNAS, Unraid, Synology, or Raspberry Pi:
+For 24/7 unattended mining on Linux VPS, TrueNAS, Unraid, Synology, or Raspberry Pi. The published multi-arch image `ghcr.io/thozoz/tdm` (`linux/amd64`, `linux/arm64`) needs no clone, no build, and no Go toolchain — `docker pull` is enough.
 
-#### 1. Authenticate (one-time interactive login):
+#### 1. Create persistent storage:
 
 ```bash
-docker compose run --rm tdm auth login
+mkdir -p data config
 ```
 
-#### 2. Start container in background:
+#### 2. Authenticate (one-time, interactive):
+
+```bash
+docker run --rm -it -v "$(pwd)/data:/root/.local/state/tdm" -v "$(pwd)/config:/root/.config/tdm" ghcr.io/thozoz/tdm:latest tdm auth login
+```
+
+This step is interactive (`-it`) and must complete before starting the daemon — a fresh `docker compose up -d` with no credentials yet will crash-loop under `restart: unless-stopped`.
+
+#### 3. Start the daemon in the background:
 
 ```bash
 docker compose up -d
 ```
 
-#### 3. Check status & logs:
+`docker-compose.yml` pulls `ghcr.io/thozoz/tdm:latest` directly — nothing to build.
+
+#### 4. Check status & logs:
+
+The daemon's IPC socket lives inside the container, so the host's own `tdm status` command cannot reach it. Use `docker exec`/`docker logs` instead:
 
 ```bash
 # Check status
-docker compose exec tdm tdm status
+docker exec tdm tdm status
 
 # Follow logs
-docker compose logs -f
+docker logs -f tdm
 ```
 
-All credentials and state are persisted in the `./data` directory.
+Credentials and state persist across restarts in `./data` and `./config`.
+
+---
+
+#### Building from source instead
+
+The original multi-stage `Dockerfile` at the repo root still compiles from source, for anyone who wants to audit it or track an unreleased commit:
+
+```bash
+git clone https://github.com/thozoz/twitch-drops-miner-go.git
+cd twitch-drops-miner-go
+docker build -t tdm:latest .
+```
+
+Swap `image: ghcr.io/thozoz/tdm:latest` for `build: .` in `docker-compose.yml` (or run the built image directly with `docker run`) to use it — the same auth/start/status steps above apply unchanged against the locally built `tdm:latest` tag.
 
 ---
 

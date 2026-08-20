@@ -1,7 +1,6 @@
 services:
   tdm:
-    build: .
-    image: tdm:latest
+    image: ghcr.io/thozoz/tdm:latest
     container_name: tdm
     restart: unless-stopped
     volumes:
