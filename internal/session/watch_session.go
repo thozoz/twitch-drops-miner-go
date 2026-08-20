@@ -25,6 +25,13 @@ var (
 	// ErrNoEarnableDrop indicates that no earnable drop is available for the selected campaign and channel.
 	ErrNoEarnableDrop = errors.New("no earnable drop on selected campaign/channel")
 
+	// ErrNoProgress indicates the channel stayed online but the active drop stopped accruing
+	// minutes for longer than noProgressTimeout. This is distinct from ErrNoEarnableDrop, which
+	// is checked once at session start before watching begins: ErrNoProgress fires mid-session
+	// when an earnable drop exists but the stream stops advancing it (e.g. a stale dropID or a
+	// server that no longer reports progress for the tracked drop).
+	ErrNoProgress = errors.New("no drop progress within timeout window")
+
 	errSessionComplete = errors.New("session complete")
 )
 
@@ -53,6 +60,14 @@ func WithReconcileInterval(d time.Duration) SessionOption {
 func WithOfflineGrace(d time.Duration) SessionOption {
 	return func(s *WatchSession) {
 		s.offlineGrace = d
+	}
+}
+
+// WithNoProgressTimeout overrides the duration of zero drop-minute movement tolerated before the
+// session gives up on the current channel and returns ErrNoProgress. 0 disables the watchdog.
+func WithNoProgressTimeout(d time.Duration) SessionOption {
+	return func(s *WatchSession) {
+		s.noProgressTimeout = d
 	}
 }
 
@@ -104,15 +119,17 @@ type WatchSession struct {
 	statePath           string
 	reconcileInterval   time.Duration
 	offlineGrace        time.Duration
+	noProgressTimeout   time.Duration
 	confirmDelay        time.Duration
 	confirmPollInterval time.Duration
 	confirmRetries      int
 	onProgress          ProgressCallback
 
-	mu           sync.Mutex
-	claimMu      sync.Mutex
-	activeDrop   *inventory.TimedDrop
-	offlineSince time.Time
+	mu             sync.Mutex
+	claimMu        sync.Mutex
+	activeDrop     *inventory.TimedDrop
+	offlineSince   time.Time
+	lastProgressAt time.Time
 }
 
 // NewWatchSession creates a new WatchSession instance.
@@ -135,6 +152,7 @@ func NewWatchSession(
 		logger:              logger,
 		reconcileInterval:   59 * time.Second,
 		offlineGrace:        inventory.NewOfflineGrace().Window,
+		noProgressTimeout:   10 * time.Minute,
 		confirmDelay:        4 * time.Second,
 		confirmPollInterval: 2 * time.Second,
 		confirmRetries:      8,
@@ -181,6 +199,7 @@ func (s *WatchSession) Run(ctx context.Context, campaign inventory.DropsCampaign
 	var ok bool
 	s.mu.Lock()
 	s.activeDrop, ok = campaign.FirstEarnableDrop(time.Now(), &ch)
+	s.lastProgressAt = time.Now()
 	activeDropCopy := s.activeDrop
 	s.mu.Unlock()
 	if !ok {
@@ -248,6 +267,17 @@ func (s *WatchSession) Run(ctx context.Context, campaign inventory.DropsCampaign
 					return ErrChannelOffline
 				}
 
+				s.mu.Lock()
+				lastProgressAt := s.lastProgressAt
+				s.mu.Unlock()
+				if s.noProgressTimeout > 0 && !lastProgressAt.IsZero() && time.Since(lastProgressAt) >= s.noProgressTimeout {
+					s.logger.Warn("no drop progress within timeout window, abandoning channel",
+						slog.Duration("timeout", s.noProgressTimeout),
+						slog.Duration("elapsed", time.Since(lastProgressAt)),
+					)
+					return ErrNoProgress
+				}
+
 				dropID, currentMinutes, ok, err := inventory.FetchCurrentDropProgress(gctx, s.gqlClient, ch.ID)
 				if err != nil {
 					s.logger.Warn("failed to fetch current drop progress via GQL", "error", err)
@@ -257,6 +287,9 @@ func (s *WatchSession) Run(ctx context.Context, campaign inventory.DropsCampaign
 					var changed bool
 					if s.activeDrop != nil && s.activeDrop.ID == dropID {
 						changed = inventory.ReconcileMinutes(s.activeDrop, currentMinutes, s.logger)
+						if changed {
+							s.lastProgressAt = time.Now()
+						}
 						if s.activeDrop.CurrentMinutes >= s.activeDrop.RequiredMinutes {
 							shouldClaim = true
 						}
@@ -330,6 +363,9 @@ func (s *WatchSession) Run(ctx context.Context, campaign inventory.DropsCampaign
 								s.activeDrop.ClaimID = payload.DropInstanceID
 							}
 							changed = inventory.ReconcileMinutes(s.activeDrop, payload.CurrentProgressMin, s.logger)
+							if changed {
+								s.lastProgressAt = time.Now()
+							}
 							if s.activeDrop.CurrentMinutes >= s.activeDrop.RequiredMinutes {
 								shouldClaim = true
 							}
@@ -487,6 +523,7 @@ func (s *WatchSession) claimAndAdvance(ctx context.Context, campaign *inventory.
 	nextDrop, ok := campaign.FirstEarnableDrop(time.Now(), &ch)
 	if ok {
 		s.activeDrop = nextDrop
+		s.lastProgressAt = time.Now()
 		if s.onProgress != nil {
 			s.onProgress(nextDrop)
 		}

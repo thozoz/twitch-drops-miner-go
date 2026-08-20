@@ -213,7 +213,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			return nil
 		}
 
-		if runErr != nil && !errors.Is(runErr, session.ErrChannelOffline) && !errors.Is(runErr, session.ErrNoEarnableDrop) {
+		if runErr != nil && !errors.Is(runErr, session.ErrChannelOffline) && !errors.Is(runErr, session.ErrNoEarnableDrop) && !errors.Is(runErr, session.ErrNoProgress) {
 			s.logger.Error("watch session error", "error", runErr)
 			s.statusMu.Lock()
 			s.errorCount++
