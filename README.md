@@ -350,7 +350,6 @@ Environment variables take precedence over config files:
 - [x] JSON-RPC 2.0 local control plane (Unix socket / Named pipe)
 - [x] Multi-platform Docker support & automated CI/CD releases
 - [ ] Embedded Web Dashboard (remote monitoring via web browser on LAN/VPS)
-- [ ] Cross-platform Desktop GUI (native desktop application powered by Wails)
 
 ---
 
