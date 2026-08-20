@@ -1,0 +1,36 @@
+{
+  "name": "@thozoz/dropminer",
+  "version": "0.0.0",
+  "description": "Unofficial headless-first Twitch drops miner — installs the tdm CLI. Not affiliated with, endorsed by, or sponsored by Twitch Interactive, Inc.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thozoz/twitch-drops-miner-go.git"
+  },
+  "bin": {
+    "tdm": "bin/tdm.js"
+  },
+  "os": [
+    "linux",
+    "darwin",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin/tdm.js"
+  ],
+  "optionalDependencies": {
+    "@thozoz/dropminer-linux-x64": "0.0.0",
+    "@thozoz/dropminer-linux-arm64": "0.0.0",
+    "@thozoz/dropminer-darwin-x64": "0.0.0",
+    "@thozoz/dropminer-darwin-arm64": "0.0.0",
+    "@thozoz/dropminer-win32-x64": "0.0.0",
+    "@thozoz/dropminer-win32-arm64": "0.0.0"
+  }
+}

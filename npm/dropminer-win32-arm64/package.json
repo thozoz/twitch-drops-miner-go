@@ -1,0 +1,19 @@
+{
+  "name": "@thozoz/dropminer-win32-arm64",
+  "version": "0.0.0",
+  "description": "tdm prebuilt binary for win32/arm64 — unofficial Twitch drops miner, not affiliated with Twitch Interactive, Inc.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thozoz/twitch-drops-miner-go.git"
+  },
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "bin/tdm.exe"
+  ]
+}
