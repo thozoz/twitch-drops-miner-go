@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/thozoz/twitch-drops-miner-go/internal/config"
 	"github.com/thozoz/twitch-drops-miner-go/internal/logging"
+	"github.com/thozoz/twitch-drops-miner-go/pkg/version"
 )
 
 const (
@@ -47,6 +48,7 @@ var (
 var rootCmd = &cobra.Command{
 	Use:           "tdm",
 	Short:         "tdm is a headless-first Twitch Drops Miner",
+	Version:       version.String(),
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -83,6 +85,11 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
+	// version.String() already carries the "tdm " prefix, so drop Cobra's default
+	// "{{.Name}} version {{.Version}}" wrapper and print it verbatim — `tdm --version`
+	// then matches the `tdm version` subcommand byte for byte.
+	rootCmd.SetVersionTemplate("{{.Version}}\n")
+
 	rootCmd.PersistentFlags().StringVar(&configFile, "config", "", "Path to configuration file")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
 	rootCmd.PersistentFlags().StringVar(&logFormat, "log-format", "text", "Log format (text, json)")
