@@ -293,6 +293,7 @@ tdm priority set "Special Events" "Fortnite" "Rust"
 |---|---|
 | `tdm config show` | Prints effective configuration JSON. |
 | `tdm config init` | Writes a starter `config.json` file. |
+| `tdm config set <key> <value>` | Writes a single setting (e.g. `enable_badges_emotes`) to the resolved config file. |
 | `tdm gql probe <query>` | Tests a persisted GraphQL query from `operations.json`. |
 | `tdm pubsub listen` | Subscribes to live WebSocket drop events for debugging. |
 | `tdm version` | Prints the binary version, and the commit hash and build date when available. |
@@ -318,7 +319,8 @@ Example `config.json`:
   ],
   "exclude": [
     "Closed Beta Game"
-  ]
+  ],
+  "enable_badges_emotes": false
 }
 ```
 
@@ -336,6 +338,9 @@ Environment variables take precedence over config files:
 A path named through `--config` or `TDM_CONFIG` must exist — tdm reports an error rather than silently falling back to defaults. A missing file at the default location is fine and simply means no config has been written yet.
 
 `tdm priority add/set` writes back to whichever file was resolved, so runtime changes survive a restart.
+
+`tdm config set <key> <value>` writes a single setting to the resolved config file and works whether or not the daemon is running. Settable keys today:
+- `enable_badges_emotes` (`true`/`false`, default `false`): include campaigns whose rewards are exclusively badges or emotes in the mining candidate pool. Unlike `priority`, this setting is read once at daemon startup, not live -- after changing it, restart tdm (`tdm stop && tdm start`) for it to take effect. `tdm inventory list` marks any campaign it skips with the reason (`[skipped: ...]`), so you can tell a badge/emote skip from an unlinked-account skip without checking the docs.
 
 ---
 

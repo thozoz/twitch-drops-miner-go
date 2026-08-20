@@ -80,22 +80,27 @@ var mineCmd = &cobra.Command{
 			logger.Info("swept and claimed unclaimed drops from prior runs", "count", sweptCount)
 		}
 
-		eligible, unlinked := inventory.SplitEligible(campaigns)
-		for _, u := range unlinked {
-			logger.Warn("campaign unlinked, skipped: run the link URL to enable it",
-				"game", u.Game.Name,
-				"link_url", u.LinkURL,
-			)
-		}
-
 		cfg := config.FromContext(ctx)
 		var priority, exclude []string
+		enableBadgesEmotes := false
 		if cfg != nil {
 			priority = cfg.Priority
 			exclude = cfg.Exclude
+			enableBadgesEmotes = cfg.EnableBadgesEmotes
 		}
 
-		selected := inventory.SelectCampaign(eligible, priority, exclude, time.Now())
+		eligible, skipped := inventory.SplitEligible(campaigns, enableBadgesEmotes)
+		for _, sk := range skipped {
+			logger.Warn("campaign skipped",
+				"game", sk.Game.Name,
+				"campaign", sk.Name,
+				"reason", string(sk.Reason),
+				"detail", sk.Reason.Detail(),
+				"link_url", sk.LinkURL,
+			)
+		}
+
+		selected := inventory.SelectCampaign(eligible, priority, exclude, time.Now(), enableBadgesEmotes)
 		if selected == nil {
 			fmt.Println("no eligible campaign to mine")
 			return nil

@@ -46,6 +46,16 @@ func WithConfigPath(path string) SupervisorOption {
 	}
 }
 
+// WithEnableBadgesEmotes sets whether badge/emote-reward campaigns are
+// included in the eligible candidate pool, mirroring the enable_badges_emotes
+// config setting read at startup. See Supervisor.enableBadgesEmotes's doc
+// comment for why this is not live-updatable.
+func WithEnableBadgesEmotes(enabled bool) SupervisorOption {
+	return func(s *Supervisor) {
+		s.enableBadgesEmotes = enabled
+	}
+}
+
 // persistPriority is the hook used to write the priority list to disk. It is a
 // field so tests can substitute a failing writer without touching the filesystem.
 var persistPriority = config.SavePriority
@@ -59,6 +69,14 @@ type Supervisor struct {
 	reselectBackoff time.Duration
 	startedAt       time.Time
 	configPath      string
+
+	// enableBadgesEmotes mirrors the enable_badges_emotes config setting at the
+	// moment the daemon started. Unlike priority/exclude it is never mutated
+	// live -- SplitEligible only runs once per selection cycle inside
+	// fetchInventory, and threading a live update through would need a new IPC
+	// method and a second mutable field with its own lock. A config change
+	// takes effect on the next daemon restart.
+	enableBadgesEmotes bool
 
 	priorityMu sync.RWMutex
 	priority   []string
@@ -101,6 +119,7 @@ func NewProductionSupervisor(
 	userID int,
 	logger *slog.Logger,
 	priority, exclude []string,
+	enableBadgesEmotes bool,
 	opts ...SupervisorOption,
 ) *Supervisor {
 	if logger == nil {
@@ -122,11 +141,14 @@ func NewProductionSupervisor(
 			logger.Info("swept and claimed unclaimed drops from prior runs", "count", sweptCount)
 		}
 
-		eligible, unlinked := inventory.SplitEligible(campaigns)
-		for _, u := range unlinked {
-			logger.Debug("campaign unlinked, skipped: run the link URL to enable it",
-				"game", u.Game.Name,
-				"link_url", u.LinkURL,
+		eligible, skipped := inventory.SplitEligible(campaigns, enableBadgesEmotes)
+		for _, sk := range skipped {
+			logger.Debug("campaign skipped",
+				"game", sk.Game.Name,
+				"campaign", sk.Name,
+				"reason", string(sk.Reason),
+				"detail", sk.Reason.Detail(),
+				"link_url", sk.LinkURL,
 			)
 		}
 		return eligible, nil
@@ -136,7 +158,8 @@ func NewProductionSupervisor(
 		return inventory.ResolveChannel(ctx, gqlClient, c)
 	}
 
-	return NewSupervisor(fetchInventory, resolveChannel, logger, priority, exclude, opts...)
+	allOpts := append([]SupervisorOption{WithEnableBadgesEmotes(enableBadgesEmotes)}, opts...)
+	return NewSupervisor(fetchInventory, resolveChannel, logger, priority, exclude, allOpts...)
 }
 
 // Run runs the supervisor loop: select campaign -> resolve channel -> watch -> repeat.
@@ -169,7 +192,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 		exclude := append([]string(nil), s.exclude...)
 		s.priorityMu.RUnlock()
 
-		selected := inventory.SelectCampaign(eligible, priority, exclude, time.Now())
+		selected := inventory.SelectCampaign(eligible, priority, exclude, time.Now(), s.enableBadgesEmotes)
 		if selected == nil {
 			s.statusMu.Lock()
 			s.status = ipc.StatusResult{

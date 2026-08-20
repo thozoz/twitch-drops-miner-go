@@ -115,9 +115,11 @@ var runCmd = &cobra.Command{
 		}
 
 		var priority, exclude []string
+		enableBadgesEmotes := false
 		if cfg != nil {
 			priority = cfg.Priority
 			exclude = cfg.Exclude
+			enableBadgesEmotes = cfg.EnableBadgesEmotes
 		}
 
 		// Resolve here, where the --config flag is actually known, and hand the
@@ -136,6 +138,7 @@ var runCmd = &cobra.Command{
 			runLogger,
 			priority,
 			exclude,
+			enableBadgesEmotes,
 			daemon.WithWatchRunner(runWatch),
 			daemon.WithConfigPath(resolvedConfigPath),
 		)

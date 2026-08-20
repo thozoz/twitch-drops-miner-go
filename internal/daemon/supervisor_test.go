@@ -37,7 +37,7 @@ func makeTestCampaign(id, name, gameName string) inventory.DropsCampaign {
 				RequiredMinutes: 60,
 				CurrentMinutes:  0,
 				Benefits: []inventory.Benefit{
-					{ID: id + "-b1", Name: "Benefit 1", Type: inventory.BenefitBadge},
+					{ID: id + "-b1", Name: "Benefit 1", Type: inventory.BenefitDirectEntitlement},
 				},
 			},
 		},

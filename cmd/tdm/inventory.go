@@ -77,17 +77,30 @@ var inventoryListCmd = &cobra.Command{
 				return &CommandError{Code: ExitError, Err: err}
 			}
 
-			eligible, unlinked := inventory.SplitEligible(campaigns)
+			cfg := config.FromContext(runCtx)
+			enableBadgesEmotes := false
+			if cfg != nil {
+				enableBadgesEmotes = cfg.EnableBadgesEmotes
+			}
 
-			for _, u := range unlinked {
-				logger.Debug("campaign unlinked, skipped: run the link URL to enable it",
-					"game", u.Game.Name,
-					"link_url", u.LinkURL,
+			eligible, skipped := inventory.SplitEligible(campaigns, enableBadgesEmotes)
+
+			for _, sk := range skipped {
+				logger.Debug("campaign skipped",
+					"game", sk.Game.Name,
+					"campaign", sk.Name,
+					"reason", string(sk.Reason),
+					"detail", sk.Reason.Detail(),
+					"link_url", sk.LinkURL,
 				)
 			}
 
 			if inventoryListJSON {
-				data, err := json.MarshalIndent(eligible, "", "  ")
+				output := struct {
+					Eligible []inventory.DropsCampaign  `json:"eligible"`
+					Skipped  []inventory.SkippedCampaign `json:"skipped"`
+				}{Eligible: eligible, Skipped: skipped}
+				data, err := json.MarshalIndent(output, "", "  ")
 				if err != nil {
 					logger.Error("failed to marshal inventory to JSON", "error", err)
 					return &CommandError{Code: ExitError, Err: err}
@@ -96,8 +109,8 @@ var inventoryListCmd = &cobra.Command{
 				return nil
 			}
 
-			if len(eligible) == 0 {
-				fmt.Println("No eligible drop campaigns available.")
+			if len(eligible) == 0 && len(skipped) == 0 {
+				fmt.Println("No drop campaigns available.")
 				return nil
 			}
 
@@ -110,6 +123,10 @@ var inventoryListCmd = &cobra.Command{
 					}
 					fmt.Printf("  • %s: %d/%d min%s\n", d.Name, d.CurrentMinutes, d.RequiredMinutes, status)
 				}
+			}
+
+			for _, sk := range skipped {
+				fmt.Printf("%s - %s [skipped: %s]\n", sk.Game.Name, sk.Name, sk.Reason.Detail())
 			}
 
 			return nil
