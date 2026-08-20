@@ -108,7 +108,7 @@ tdm auth login
 tdm start
 ```
 
-Installs the `tdm` command — the npm package is named `@thozoz/dropminer`, not `tdm`, since the unscoped `tdm` name was already taken.
+Installs the `tdm` command — the package and the command are deliberately named differently, the same way the `typescript` package installs `tsc`.
 This complements (does not replace) the binary/`go install` methods above.
 
 *Not affiliated with, endorsed by, or sponsored by Twitch Interactive, Inc.*
