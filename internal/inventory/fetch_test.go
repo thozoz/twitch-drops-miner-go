@@ -115,13 +115,14 @@ func TestFetchInventory_OfflineFixtures(t *testing.T) {
 		assert.NotEqual(t, "camp-expired", c.ID, "EXPIRED campaign should be filtered out")
 	}
 
-	eligible, unlinked := SplitEligible(campaigns)
+	eligible, skipped := SplitEligible(campaigns, false)
 	assert.NotEmpty(t, eligible)
-	require.NotEmpty(t, unlinked, "Unlinked campaign should be placed into unlinked slice")
-	assert.Equal(t, "camp-dash-2", unlinked[0].ID)
-	assert.False(t, unlinked[0].Linked)
-	assert.False(t, unlinked[0].Eligible())
-	assert.Equal(t, "https://example.com/link-2", unlinked[0].LinkURL)
+	require.NotEmpty(t, skipped, "Unlinked campaign should be placed into skipped slice")
+	assert.Equal(t, "camp-dash-2", skipped[0].ID)
+	assert.False(t, skipped[0].Linked)
+	assert.False(t, skipped[0].Eligible(false))
+	assert.Equal(t, "https://example.com/link-2", skipped[0].LinkURL)
+	assert.Equal(t, SkipReasonUnlinked, skipped[0].Reason)
 
 	// Verify in-progress campaign details
 	var inProg *DropsCampaign
@@ -162,4 +163,52 @@ func TestFetch_ZeroSha256InSource(t *testing.T) {
 	content, err := os.ReadFile("fetch.go")
 	require.NoError(t, err)
 	assert.NotContains(t, string(content), "sha256Hash", "fetch.go must not contain raw sha256Hash literals")
+}
+
+func campaignIDs(campaigns []DropsCampaign) []string {
+	ids := make([]string, len(campaigns))
+	for i, c := range campaigns {
+		ids[i] = c.ID
+	}
+	return ids
+}
+
+func TestSplitEligible_BadgeOrEmoteGating(t *testing.T) {
+	badgeCampaign := DropsCampaign{
+		ID:     "badge-camp",
+		Linked: true,
+		Drops:  []TimedDrop{{Benefits: []Benefit{{ID: "b1", Type: BenefitBadge}}}},
+	}
+	normalCampaign := DropsCampaign{
+		ID:     "normal-camp",
+		Linked: true,
+		Drops:  []TimedDrop{{Benefits: []Benefit{{ID: "b2", Type: BenefitDirectEntitlement}}}},
+	}
+	unlinkedCampaign := DropsCampaign{
+		ID:     "unlinked-camp",
+		Linked: false,
+		Drops:  []TimedDrop{{Benefits: []Benefit{{ID: "b3", Type: BenefitDirectEntitlement}}}},
+	}
+	campaigns := []DropsCampaign{badgeCampaign, normalCampaign, unlinkedCampaign}
+
+	t.Run("badges disabled", func(t *testing.T) {
+		eligible, skipped := SplitEligible(campaigns, false)
+		assert.Equal(t, []string{"normal-camp"}, campaignIDs(eligible))
+		require.Len(t, skipped, 2)
+
+		reasons := make(map[string]SkipReason, len(skipped))
+		for _, sk := range skipped {
+			reasons[sk.ID] = sk.Reason
+		}
+		assert.Equal(t, SkipReasonBadgeOrEmote, reasons["badge-camp"])
+		assert.Equal(t, SkipReasonUnlinked, reasons["unlinked-camp"])
+	})
+
+	t.Run("badges enabled", func(t *testing.T) {
+		eligible, skipped := SplitEligible(campaigns, true)
+		assert.ElementsMatch(t, []string{"badge-camp", "normal-camp"}, campaignIDs(eligible))
+		require.Len(t, skipped, 1)
+		assert.Equal(t, "unlinked-camp", skipped[0].ID)
+		assert.Equal(t, SkipReasonUnlinked, skipped[0].Reason)
+	})
 }

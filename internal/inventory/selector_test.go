@@ -50,7 +50,7 @@ func TestSelectCampaign(t *testing.T) {
 		priority := []string{"GameA", "GameB"}
 		exclude := []string{}
 
-		selected := SelectCampaign([]DropsCampaign{campC, campB}, priority, exclude, now)
+		selected := SelectCampaign([]DropsCampaign{campC, campB}, priority, exclude, now, false)
 		require.NotNil(t, selected)
 		assert.Equal(t, "c-b", selected.ID)
 	})
@@ -59,7 +59,7 @@ func TestSelectCampaign(t *testing.T) {
 		campSooner := makeCampaign("c-sooner", "Sooner", gameA, now.Add(2*time.Hour), true, nil)
 		campLater := makeCampaign("c-later", "Later", gameB, now.Add(6*time.Hour), true, nil)
 
-		selected := SelectCampaign([]DropsCampaign{campLater, campSooner}, nil, nil, now)
+		selected := SelectCampaign([]DropsCampaign{campLater, campSooner}, nil, nil, now, false)
 		require.NotNil(t, selected)
 		assert.Equal(t, "c-sooner", selected.ID)
 	})
@@ -67,14 +67,14 @@ func TestSelectCampaign(t *testing.T) {
 	t.Run("exclude list filters campaign even if only eligible one", func(t *testing.T) {
 		campA := makeCampaign("c-a", "Campaign A", gameA, now.Add(2*time.Hour), true, nil)
 
-		selected := SelectCampaign([]DropsCampaign{campA}, nil, []string{"GameA"}, now)
+		selected := SelectCampaign([]DropsCampaign{campA}, nil, []string{"GameA"}, now, false)
 		assert.Nil(t, selected, "Excluded campaign must not be selected")
 	})
 
 	t.Run("unlinked campaign is not eligible and never selected", func(t *testing.T) {
 		campUnlinked := makeCampaign("c-unlinked", "Unlinked", gameA, now.Add(2*time.Hour), false, nil)
 
-		selected := SelectCampaign([]DropsCampaign{campUnlinked}, nil, nil, now)
+		selected := SelectCampaign([]DropsCampaign{campUnlinked}, nil, nil, now, false)
 		assert.Nil(t, selected)
 	})
 
@@ -90,7 +90,28 @@ func TestSelectCampaign(t *testing.T) {
 		}
 		campDone := makeCampaign("c-done", "Done", gameA, now.Add(2*time.Hour), true, []TimedDrop{completedDrop})
 
-		selected := SelectCampaign([]DropsCampaign{campDone}, nil, nil, now)
+		selected := SelectCampaign([]DropsCampaign{campDone}, nil, nil, now, false)
 		assert.Nil(t, selected)
+	})
+
+	t.Run("badge/emote campaign requires enableBadgesEmotes", func(t *testing.T) {
+		campBadge := makeCampaign("c-badge", "Badge Campaign", gameA, now.Add(2*time.Hour), true, []TimedDrop{
+			{
+				ID:              "c-badge-drop1",
+				StartsAt:        now.Add(-1 * time.Hour),
+				EndsAt:          now.Add(2 * time.Hour),
+				RequiredMinutes: 60,
+				CurrentMinutes:  0,
+				IsClaimed:       false,
+				Benefits:        []Benefit{{ID: "c-badge-b1", Type: BenefitBadge}},
+			},
+		})
+
+		selected := SelectCampaign([]DropsCampaign{campBadge}, nil, nil, now, false)
+		assert.Nil(t, selected)
+
+		selected = SelectCampaign([]DropsCampaign{campBadge}, nil, nil, now, true)
+		require.NotNil(t, selected)
+		assert.Equal(t, "c-badge", selected.ID)
 	})
 }

@@ -23,16 +23,56 @@ func NewFetcher(client *gql.Client) *Fetcher {
 	return &Fetcher{Client: client}
 }
 
-// SplitEligible divides a campaign slice into eligible and unlinked campaigns.
-func SplitEligible(campaigns []DropsCampaign) (eligible, unlinked []DropsCampaign) {
-	for _, c := range campaigns {
-		if c.Eligible() {
-			eligible = append(eligible, c)
-		} else {
-			unlinked = append(unlinked, c)
-		}
+// SkipReason explains why a campaign was excluded by SplitEligible. Kept as a
+// typed constant, not a free-text string, so callers can branch on it and so
+// SkipReason.Detail() is the single place reason text is authored.
+type SkipReason string
+
+const (
+	SkipReasonUnlinked     SkipReason = "unlinked"
+	SkipReasonBadgeOrEmote SkipReason = "badge_or_emote"
+)
+
+// Detail returns a human-readable reason and remedy. Every skip-logging call
+// site in this codebase derives its wording from this so none can drift apart.
+func (r SkipReason) Detail() string {
+	switch r {
+	case SkipReasonBadgeOrEmote:
+		return "badge/emote rewards — enable with `tdm config set enable_badges_emotes true`"
+	case SkipReasonUnlinked:
+		return "account not linked — open the campaign's link URL"
+	default:
+		return string(r)
 	}
-	return eligible, unlinked
+}
+
+// SkippedCampaign pairs a campaign excluded by SplitEligible with the reason
+// it was excluded. Embeds DropsCampaign (not a tuple) so existing call sites
+// that access fields like .Game / .LinkURL directly on the old "unlinked"
+// slice need only a variable rename, not a rewrite.
+type SkippedCampaign struct {
+	DropsCampaign
+	Reason SkipReason `json:"reason"`
+}
+
+// SplitEligible divides a campaign slice into eligible campaigns and skipped
+// campaigns carrying the reason each was excluded. enableBadgesEmotes is
+// required (not variadic/optional) so every call site visibly states which
+// setting drove the decision, and so the compiler flags every call site that
+// needs updating if this signature ever changes again.
+func SplitEligible(campaigns []DropsCampaign, enableBadgesEmotes bool) (eligible []DropsCampaign, skipped []SkippedCampaign) {
+	for _, c := range campaigns {
+		if c.Eligible(enableBadgesEmotes) {
+			eligible = append(eligible, c)
+			continue
+		}
+		reason := SkipReasonUnlinked
+		if c.HasBadgeOrEmote() {
+			reason = SkipReasonBadgeOrEmote
+		}
+		skipped = append(skipped, SkippedCampaign{DropsCampaign: c, Reason: reason})
+	}
+	return eligible, skipped
 }
 
 // FetchInventory retrieves the operator's in-progress and available drops campaigns

@@ -79,7 +79,7 @@ func TestDropsCampaign_EligibilityAndStatus(t *testing.T) {
 		StartsAt: now.Add(-1 * time.Hour),
 		EndsAt:   now.Add(1 * time.Hour),
 	}
-	assert.False(t, cUnlinked.Eligible())
+	assert.False(t, cUnlinked.Eligible(false))
 	assert.True(t, cUnlinked.Active(now))
 	assert.False(t, cUnlinked.Upcoming(now))
 	assert.False(t, cUnlinked.Expired(now))
@@ -91,7 +91,7 @@ func TestDropsCampaign_EligibilityAndStatus(t *testing.T) {
 		StartsAt: now.Add(-1 * time.Hour),
 		EndsAt:   now.Add(1 * time.Hour),
 	}
-	assert.True(t, cLinked.Eligible())
+	assert.True(t, cLinked.Eligible(false))
 	assert.True(t, cLinked.Active(now))
 
 	cUpcoming := DropsCampaign{
@@ -115,6 +115,73 @@ func TestDropsCampaign_EligibilityAndStatus(t *testing.T) {
 	assert.False(t, cExpired.Active(now))
 	assert.False(t, cUpcoming.Expired(now))
 	assert.True(t, cExpired.Expired(now))
+}
+
+func TestDropsCampaign_HasBadgeOrEmote(t *testing.T) {
+	cases := []struct {
+		name  string
+		drops []TimedDrop
+		want  bool
+	}{
+		{
+			name:  "badge-only",
+			drops: []TimedDrop{{Benefits: []Benefit{{ID: "b1", Type: BenefitBadge}}}},
+			want:  true,
+		},
+		{
+			name:  "emote-only",
+			drops: []TimedDrop{{Benefits: []Benefit{{ID: "b1", Type: BenefitEmote}}}},
+			want:  true,
+		},
+		{
+			name: "mixed badge and direct-entitlement across two drops",
+			drops: []TimedDrop{
+				{Benefits: []Benefit{{ID: "b1", Type: BenefitDirectEntitlement}}},
+				{Benefits: []Benefit{{ID: "b2", Type: BenefitBadge}}},
+			},
+			want: true,
+		},
+		{
+			name:  "direct-entitlement-only",
+			drops: []TimedDrop{{Benefits: []Benefit{{ID: "b1", Type: BenefitDirectEntitlement}}}},
+			want:  false,
+		},
+		{
+			name:  "no drops",
+			drops: nil,
+			want:  false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := DropsCampaign{Drops: tc.drops}
+			assert.Equal(t, tc.want, c.HasBadgeOrEmote())
+		})
+	}
+}
+
+func TestDropsCampaign_Eligible_BadgeOrEmoteGating(t *testing.T) {
+	badgeLinked := DropsCampaign{
+		Linked: true,
+		Drops:  []TimedDrop{{Benefits: []Benefit{{ID: "b1", Type: BenefitBadge}}}},
+	}
+	assert.False(t, badgeLinked.Eligible(false))
+	assert.True(t, badgeLinked.Eligible(true))
+
+	normalLinked := DropsCampaign{
+		Linked: true,
+		Drops:  []TimedDrop{{Benefits: []Benefit{{ID: "b1", Type: BenefitDirectEntitlement}}}},
+	}
+	assert.True(t, normalLinked.Eligible(false))
+	assert.True(t, normalLinked.Eligible(true))
+
+	normalUnlinked := DropsCampaign{
+		Linked: false,
+		Drops:  []TimedDrop{{Benefits: []Benefit{{ID: "b1", Type: BenefitDirectEntitlement}}}},
+	}
+	assert.False(t, normalUnlinked.Eligible(false))
+	assert.False(t, normalUnlinked.Eligible(true))
 }
 
 func TestDropsCampaign_CanEarn(t *testing.T) {
