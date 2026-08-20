@@ -22,15 +22,43 @@ builds:
 
 archives:
   - id: tdm-archive
-    format: tar.gz
+    formats: [tar.gz]
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
     name_template: "{{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}"
     files:
       - README.md
       - LICENSE
       - NOTICE
+
+dockers_v2:
+  - id: tdm
+    ids: [tdm]
+    dockerfile: Dockerfile.goreleaser
+    images:
+      - ghcr.io/thozoz/tdm
+    tags:
+      - "{{ .Version }}"
+      - "{{ .Major }}.{{ .Minor }}"
+      - "{{ .Major }}"
+      - latest
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.title: tdm
+      org.opencontainers.image.description: "Headless-first Twitch Drops Miner daemon"
+      org.opencontainers.image.source: https://github.com/thozoz/twitch-drops-miner-go
+      org.opencontainers.image.licenses: MIT
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .Date }}"
+    annotations:
+      org.opencontainers.image.source: https://github.com/thozoz/twitch-drops-miner-go
+      org.opencontainers.image.description: "Headless-first Twitch Drops Miner daemon"
+      org.opencontainers.image.licenses: MIT
+    sbom: false
 
 checksum:
   name_template: "checksums.txt"

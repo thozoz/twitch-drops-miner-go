@@ -1,0 +1,15 @@
+FROM alpine:latest
+
+ARG TARGETPLATFORM
+
+RUN apk add --no-cache ca-certificates tzdata
+
+# Create standard XDG persistent storage directories
+RUN mkdir -p /root/.local/state/tdm /root/.config/tdm
+
+COPY ${TARGETPLATFORM}/tdm /usr/local/bin/tdm
+
+WORKDIR /root
+
+ENTRYPOINT ["tdm"]
+CMD ["run", "--daemon-mode"]
