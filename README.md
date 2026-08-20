@@ -100,6 +100,19 @@ make build
 go build -o tdm ./cmd/tdm
 ```
 
+**Option D — Install on Host (npm)** (requires Node.js 18+):
+
+```bash
+npm install -g @thozoz/dropminer
+tdm auth login
+tdm start
+```
+
+Installs the `tdm` command — the npm package is named `@thozoz/dropminer`, not `tdm`, since the unscoped `tdm` name was already taken.
+This complements (does not replace) the binary/`go install` methods above.
+
+*Not affiliated with, endorsed by, or sponsored by Twitch Interactive, Inc.*
+
 #### 2. Log in to your Twitch account:
 
 ```bash
