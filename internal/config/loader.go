@@ -36,11 +36,12 @@ func Load(explicitPath string) (*Config, error) {
 
 	// 1. Defaults
 	defaultMap := map[string]interface{}{
-		"log_level":  "info",
-		"log_format": "text",
-		"log_file":   "",
-		"priority":   []string{},
-		"exclude":    []string{},
+		"log_level":            "info",
+		"log_format":           "text",
+		"log_file":             "",
+		"priority":             []string{},
+		"exclude":              []string{},
+		"enable_badges_emotes": false,
 	}
 	if err := k.Load(confmap.Provider(defaultMap, "."), nil); err != nil {
 		return nil, err

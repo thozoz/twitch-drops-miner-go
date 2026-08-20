@@ -146,6 +146,54 @@ func TestSavePriority_RoundTripsThroughLoad(t *testing.T) {
 	assert.Equal(t, []string{"Rust", "Fortnite"}, cfg.Priority)
 }
 
+func TestSaveKey_WritesValueAndRoundTripsThroughLoad(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+
+	require.NoError(t, SaveKey(path, "enable_badges_emotes", true))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.True(t, cfg.EnableBadgesEmotes)
+}
+
+func TestSaveKey_PreservesUnknownKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	original := `{"priority":["Old"],"log_level":"debug","future_setting":{"nested":true}}`
+	require.NoError(t, os.WriteFile(path, []byte(original), 0600))
+
+	require.NoError(t, SaveKey(path, "enable_badges_emotes", true))
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(raw, &doc))
+
+	assert.Equal(t, true, doc["enable_badges_emotes"], "target key should be set")
+	assert.Equal(t, []any{"Old"}, doc["priority"], "unrelated known key must survive")
+	assert.Equal(t, "debug", doc["log_level"], "unrelated known key must survive")
+	assert.Equal(t, map[string]any{"nested": true}, doc["future_setting"], "unknown key must survive")
+}
+
+func TestSaveKey_RefusesToClobberInvalidJSON(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	broken := []byte(`{"priority": ["Rust",`)
+	require.NoError(t, os.WriteFile(path, broken, 0600))
+
+	err := SaveKey(path, "enable_badges_emotes", true)
+	require.Error(t, err)
+
+	after, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	assert.Equal(t, broken, after, "a config we cannot parse must be left untouched")
+}
+
+func TestSaveKey_RequiresPath(t *testing.T) {
+	require.Error(t, SaveKey("", "enable_badges_emotes", true))
+}
+
 func keysOf(m map[string]any) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
