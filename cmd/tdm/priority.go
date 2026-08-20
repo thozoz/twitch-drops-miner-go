@@ -58,14 +58,15 @@ func executePriorityCall(cmd *cobra.Command, params ipc.PriorityParams) error {
 
 	addr, err := config.SocketPath()
 	if err != nil {
-		fmt.Fprintln(cmd.ErrOrStderr(), "tdm is not running")
-		return &CommandError{Code: ExitError, Err: err}
+		return executePriorityOffline(cmd, params)
 	}
 
 	conn, err := ipc.Dial(ctx, addr, 3*time.Second, nil)
 	if err != nil {
-		fmt.Fprintln(cmd.ErrOrStderr(), "tdm is not running")
-		return &CommandError{Code: ExitError, Err: err}
+		// No daemon listening. Rather than refusing outright, fall back to the
+		// config file so the list can be inspected or staged before first launch
+		// without hand-editing JSON.
+		return executePriorityOffline(cmd, params)
 	}
 	defer conn.Close()
 
@@ -75,6 +76,58 @@ func executePriorityCall(cmd *cobra.Command, params ipc.PriorityParams) error {
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout(), formatPriority(result.Priority))
+	return nil
+}
+
+// executePriorityOffline services a priority command straight from config.json
+// when no daemon is reachable. Mutations take effect the next time the daemon
+// starts, which the caller is told explicitly so the lack of a running daemon is
+// never mistaken for the change having been applied live.
+func executePriorityOffline(cmd *cobra.Command, params ipc.PriorityParams) error {
+	path, err := config.ResolveConfigPath(configFile)
+	if err != nil {
+		fmt.Fprintln(cmd.ErrOrStderr(), "tdm is not running, and the config file path could not be resolved")
+		return &CommandError{Code: ExitError, Err: err}
+	}
+
+	cfg, err := config.Load(configFile)
+	if err != nil {
+		fmt.Fprintln(cmd.ErrOrStderr(), "tdm is not running, and the config file could not be read")
+		return &CommandError{Code: ExitError, Err: err}
+	}
+
+	updated := append([]string(nil), cfg.Priority...)
+
+	switch params.Action {
+	case ipc.PriorityList:
+		fmt.Fprintln(cmd.OutOrStdout(), formatPriority(updated))
+		return nil
+
+	case ipc.PriorityAdd:
+		for _, g := range params.Games {
+			found := false
+			for _, existing := range updated {
+				if existing == g {
+					found = true
+					break
+				}
+			}
+			if !found {
+				updated = append(updated, g)
+			}
+		}
+
+	case ipc.PrioritySet:
+		updated = append([]string(nil), params.Games...)
+	}
+
+	if err := config.SavePriority(path, updated); err != nil {
+		fmt.Fprintln(cmd.ErrOrStderr(), "tdm is not running, and the config file could not be written")
+		return &CommandError{Code: ExitError, Err: err}
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout(), formatPriority(updated))
+	fmt.Fprintf(cmd.ErrOrStderr(), "tdm is not running; saved to %s, takes effect on next start\n", path)
 	return nil
 }
 

@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -58,7 +60,9 @@ func TestFormatPriority(t *testing.T) {
 	})
 }
 
-func TestPriorityCmd_DialFailure(t *testing.T) {
+func TestPriorityCmd_OfflineFallback(t *testing.T) {
+	// With no daemon listening, the priority commands work against config.json
+	// instead of refusing outright, so a list can be staged before first launch.
 	tempDir := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", tempDir)
 	t.Setenv("XDG_CONFIG_HOME", tempDir)
@@ -66,22 +70,84 @@ func TestPriorityCmd_DialFailure(t *testing.T) {
 	xdg.Reload()
 	t.Cleanup(func() { xdg.Reload() })
 
-	subcommands := [][]string{
-		{"priority", "list"},
-		{"priority", "add", "Rust"},
-		{"priority", "set", "Rust", "Overwatch 2"},
-	}
+	cfgPath, err := config.ConfigFilePath()
+	require.NoError(t, err)
 
-	for _, args := range subcommands {
+	run := func(t *testing.T, args ...string) string {
+		t.Helper()
 		buf := new(bytes.Buffer)
 		rootCmd.SetOut(buf)
 		rootCmd.SetErr(buf)
 		rootCmd.SetArgs(args)
 
 		code := Execute()
-		assert.Equal(t, ExitError, code, "expected ExitError for args: %v", args)
-		assert.Contains(t, buf.String(), "tdm is not running")
+		require.Equal(t, ExitOK, code, "args: %v, output: %s", args, buf.String())
+		return buf.String()
 	}
+
+	t.Run("list on a fresh install reports an empty list", func(t *testing.T) {
+		out := run(t, "priority", "list")
+		assert.Contains(t, out, "(none)")
+	})
+
+	t.Run("add writes to config and says it applies next start", func(t *testing.T) {
+		out := run(t, "priority", "add", "Rust")
+		assert.Contains(t, out, "Rust")
+		assert.Contains(t, out, "tdm is not running")
+		assert.Contains(t, out, "takes effect on next start",
+			"the operator must not mistake this for a live change")
+
+		cfg, err := config.Load(cfgPath)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Rust"}, cfg.Priority)
+	})
+
+	t.Run("add is idempotent and appends", func(t *testing.T) {
+		run(t, "priority", "add", "Rust", "Valorant")
+
+		cfg, err := config.Load(cfgPath)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Rust", "Valorant"}, cfg.Priority,
+			"an already-present game must not be duplicated")
+	})
+
+	t.Run("set replaces the whole list", func(t *testing.T) {
+		run(t, "priority", "set", "Overwatch 2")
+
+		cfg, err := config.Load(cfgPath)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Overwatch 2"}, cfg.Priority)
+	})
+
+	t.Run("list reads back what was written", func(t *testing.T) {
+		out := run(t, "priority", "list")
+		assert.Contains(t, out, "Overwatch 2")
+	})
+}
+
+func TestPriorityCmd_OfflinePreservesUnknownConfigKeys(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", tempDir)
+	t.Setenv("XDG_CONFIG_HOME", tempDir)
+	t.Setenv("XDG_RUNTIME_DIR", tempDir)
+	xdg.Reload()
+	t.Cleanup(func() { xdg.Reload() })
+
+	cfgPath, err := config.ConfigFilePath()
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(cfgPath), 0o755))
+	require.NoError(t, os.WriteFile(cfgPath, []byte(`{"log_level":"debug","priority":["Old"]}`), 0o600))
+
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{"priority", "set", "Rust"})
+	require.Equal(t, ExitOK, Execute(), buf.String())
+
+	cfg, err := config.Load(cfgPath)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Rust"}, cfg.Priority)
+	assert.Equal(t, "debug", cfg.LogLevel, "an unrelated setting must survive the write")
 }
 
 func TestPriorityCmd_RoundTrip(t *testing.T) {

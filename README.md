@@ -323,10 +323,19 @@ Example `config.json`:
 ```
 
 Environment variables take precedence over config files:
-- `TDM_CONFIG`: Custom configuration file path.
 - `TDM_LOG_LEVEL`: `debug`, `info`, `warn`, `error`.
 - `TDM_LOG_FORMAT`: `text` or `json`.
 - `TDM_LOG_FILE`: Path to rotating log file.
+
+`TDM_CONFIG` selects *which* file to read, rather than overriding a value in it. The config file is resolved in this order:
+
+1. The `--config` flag, if given.
+2. `TDM_CONFIG`, if set.
+3. `$XDG_CONFIG_HOME/tdm/config.json` (default).
+
+A path named through `--config` or `TDM_CONFIG` must exist — tdm reports an error rather than silently falling back to defaults. A missing file at the default location is fine and simply means no config has been written yet.
+
+`tdm priority add/set` writes back to whichever file was resolved, so runtime changes survive a restart.
 
 ---
 
