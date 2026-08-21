@@ -24,13 +24,8 @@ func TestSoak_GoroutineCeiling(t *testing.T) {
 	}
 
 	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign) (*model.Channel, error) {
-		return &model.Channel{
-			ID:          "ch1",
-			Login:       "streamer1",
-			DisplayName: "Streamer 1",
-			Online:      true,
-			Viewers:     100,
-		}, nil
+		ch := makeTestChannel("ch1", "streamer1", "Streamer 1", c.Game.Name)
+		return &ch, nil
 	}
 
 	var iterCount atomic.Int64
@@ -78,13 +73,8 @@ func TestSoak_ErrorPathDoesNotLeak(t *testing.T) {
 	}
 
 	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign) (*model.Channel, error) {
-		return &model.Channel{
-			ID:          "ch1",
-			Login:       "streamer1",
-			DisplayName: "Streamer 1",
-			Online:      true,
-			Viewers:     100,
-		}, nil
+		ch := makeTestChannel("ch1", "streamer1", "Streamer 1", c.Game.Name)
+		return &ch, nil
 	}
 
 	var iterCount atomic.Int64
@@ -135,13 +125,8 @@ func TestSoak_TimerDriftBounded(t *testing.T) {
 	}
 
 	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign) (*model.Channel, error) {
-		return &model.Channel{
-			ID:          "ch1",
-			Login:       "streamer1",
-			DisplayName: "Streamer 1",
-			Online:      true,
-			Viewers:     100,
-		}, nil
+		ch := makeTestChannel("ch1", "streamer1", "Streamer 1", c.Game.Name)
+		return &ch, nil
 	}
 
 	var mu sync.Mutex

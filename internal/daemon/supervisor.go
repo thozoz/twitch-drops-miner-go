@@ -232,21 +232,39 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			continue
 		}
 
-		initialDrop, _ := selected.FirstEarnableDrop(time.Now(), ch)
+		initialDrop, ok := selected.FirstEarnableDrop(time.Now(), ch)
+		if !ok || initialDrop == nil {
+			s.logger.Info("selected campaign has no earnable drop on resolved channel",
+				"campaign", selected.Name,
+				"game", selected.Game.Name,
+				"channel", ch.Name())
+			s.statusMu.Lock()
+			s.status = ipc.StatusResult{
+				Status:         "idle",
+				ActiveCampaign: selected.Name,
+				ActiveGame:     selected.Game.Name,
+				LastSyncTime:   time.Now(),
+			}
+			s.statusMu.Unlock()
+
+			if !s.sleep(ctx, s.reselectBackoff) {
+				return nil
+			}
+			continue
+		}
+
 		s.statusMu.Lock()
 		s.status = ipc.StatusResult{
 			Status:          "watching",
 			ActiveCampaign:  selected.Name,
 			ActiveGame:      selected.Game.Name,
 			WatchingChannel: ch.Name(),
+			ActiveDrop:      initialDrop.Name,
+			CurrentMinutes:  initialDrop.CurrentMinutes,
+			RequiredMinutes: initialDrop.RequiredMinutes,
+			ProgressPercent: initialDrop.Progress() * 100,
+			ETASeconds:      int64(initialDrop.RemainingMinutes()) * 60,
 			LastSyncTime:    time.Now(),
-		}
-		if initialDrop != nil {
-			s.status.ActiveDrop = initialDrop.Name
-			s.status.CurrentMinutes = initialDrop.CurrentMinutes
-			s.status.RequiredMinutes = initialDrop.RequiredMinutes
-			s.status.ProgressPercent = initialDrop.Progress() * 100
-			s.status.ETASeconds = int64(initialDrop.RemainingMinutes()) * 60
 		}
 		s.statusMu.Unlock()
 

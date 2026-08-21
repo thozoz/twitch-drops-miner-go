@@ -44,6 +44,18 @@ func makeTestCampaign(id, name, gameName string) inventory.DropsCampaign {
 	}
 }
 
+func makeTestChannel(id, login, displayName, gameName string) model.Channel {
+	g := model.NewGame(gameName, gameName, gameName)
+	return model.Channel{
+		ID:          id,
+		Login:       login,
+		DisplayName: displayName,
+		Online:      true,
+		Game:        &g,
+		Viewers:     100,
+	}
+}
+
 func TestSupervisor_PriorityAppliesAtNextSwitchNotMidWatch(t *testing.T) {
 	campA := makeTestCampaign("c-a", "Campaign A", "GameA")
 	campB := makeTestCampaign("c-b", "Campaign B", "GameB")
@@ -53,11 +65,13 @@ func TestSupervisor_PriorityAppliesAtNextSwitchNotMidWatch(t *testing.T) {
 	}
 
 	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign) (*model.Channel, error) {
+		g := c.Game
 		return &model.Channel{
 			ID:          "ch-" + c.Game.Name,
 			Login:       "streamer_" + c.Game.Name,
 			DisplayName: "Streamer " + c.Game.Name,
 			Online:      true,
+			Game:        &g,
 			Viewers:     100,
 		}, nil
 	}
@@ -164,13 +178,8 @@ func TestSupervisor_StatusReflectsProgress(t *testing.T) {
 	}
 
 	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign) (*model.Channel, error) {
-		return &model.Channel{
-			ID:          "ch1",
-			Login:       "streamer1",
-			DisplayName: "Streamer 1",
-			Online:      true,
-			Viewers:     50,
-		}, nil
+		ch := makeTestChannel("ch1", "streamer1", "Streamer 1", c.Game.Name)
+		return &ch, nil
 	}
 
 	runWatch := func(ctx context.Context, campaign inventory.DropsCampaign, ch model.Channel) (*inventory.TimedDrop, error) {
