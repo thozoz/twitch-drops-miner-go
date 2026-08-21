@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/thozoz/twitch-drops-miner-go/internal/gql"
 	"github.com/thozoz/twitch-drops-miner-go/internal/logging"
@@ -166,15 +167,18 @@ func ResolveCandidates(ctx context.Context, client *gql.Client, campaign DropsCa
 	return candidates, nil
 }
 
-// ResolveChannel returns the primary live channel candidate for a campaign, or nil if none is live.
+// ResolveChannel returns the primary live channel candidate for a campaign that can earn drops right now, or nil if none is live/eligible.
 func ResolveChannel(ctx context.Context, client *gql.Client, campaign DropsCampaign) (*model.Channel, error) {
 	candidates, err := ResolveCandidates(ctx, client, campaign)
 	if err != nil {
 		return nil, err
 	}
-	if len(candidates) == 0 {
-		return nil, nil
+	now := time.Now()
+	for i := range candidates {
+		if campaign.CanEarn(now, &candidates[i]) {
+			res := candidates[i]
+			return &res, nil
+		}
 	}
-	res := candidates[0]
-	return &res, nil
+	return nil, nil
 }
