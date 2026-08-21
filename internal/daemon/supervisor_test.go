@@ -236,6 +236,71 @@ func TestSupervisor_StatusReflectsProgress(t *testing.T) {
 	}
 }
 
+func TestSupervisor_ResolvedChannelNotEarnable_IdlesAndDoesNotWatch(t *testing.T) {
+	// Campaign has a drop starting in the future (CanEarnWithin is true, but FirstEarnableDrop is false now)
+	now := time.Now()
+	camp := makeTestCampaign("c-future", "Future Campaign", "Game1")
+	camp.Drops[0].StartsAt = now.Add(30 * time.Minute)
+	camp.Drops[0].EndsAt = now.Add(5 * time.Hour)
+
+	fetchInventory := func(ctx context.Context) ([]inventory.DropsCampaign, error) {
+		return []inventory.DropsCampaign{camp}, nil
+	}
+
+	// Channel resolution succeeds (returns a live channel)
+	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign) (*model.Channel, error) {
+		ch := makeTestChannel("ch1", "streamer1", "Streamer 1", c.Game.Name)
+		return &ch, nil
+	}
+
+	runWatchCalled := false
+	runWatch := func(ctx context.Context, campaign inventory.DropsCampaign, ch model.Channel) (*inventory.TimedDrop, error) {
+		runWatchCalled = true
+		return nil, nil
+	}
+
+	sup := NewSupervisor(
+		fetchInventory,
+		resolveChannel,
+		nil,
+		nil,
+		nil,
+		WithReselectBackoff(5*time.Millisecond),
+		WithWatchRunner(runWatch),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- sup.Run(ctx)
+	}()
+
+	// Wait briefly and verify status transitions to idle with campaign info
+	// because FirstEarnableDrop returns false on the resolved channel
+	var st ipc.StatusResult
+	var err error
+	require.Eventually(t, func() bool {
+		st, err = sup.Status(ctx)
+		return err == nil && st.Status == "idle" && st.ActiveCampaign == "Future Campaign"
+	}, 2*time.Second, 10*time.Millisecond)
+
+	assert.Equal(t, "idle", st.Status)
+	assert.Equal(t, "Future Campaign", st.ActiveCampaign)
+	assert.Equal(t, "Game1", st.ActiveGame)
+	assert.Empty(t, st.ActiveDrop)
+	assert.False(t, runWatchCalled, "runWatch must not be called when FirstEarnableDrop returns false")
+
+	cancel()
+	select {
+	case err := <-runDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("supervisor Run did not terminate promptly")
+	}
+}
+
 func TestSupervisor_NoEligibleCampaign_IdlesAndRetries(t *testing.T) {
 	camp := makeTestCampaign("c-unlinked", "Unlinked Campaign", "ExcludedGame")
 	camp.Linked = false // unlinked => not eligible
