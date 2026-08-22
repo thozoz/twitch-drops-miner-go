@@ -127,6 +127,9 @@ func executeExcludeOfflineWithReason(cmd *cobra.Command, params ipc.ExcludeParam
 	switch params.Action {
 	case ipc.ExcludeList:
 		fmt.Fprintln(cmd.OutOrStdout(), formatGameList(updated))
+		if reason != "tdm is not running" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s; reading from %s\n", reason, path)
+		}
 		return nil
 
 	case ipc.ExcludeAdd:

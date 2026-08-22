@@ -389,5 +389,17 @@ func TestExcludeCmd_LegacyDaemonMethodNotFound_FallsBackToOffline(t *testing.T) 
 	cfg, err := config.Load(cfgPath)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"InitialGame", "FallbackGame"}, cfg.Exclude)
+
+	// Also verify that 'exclude list' warns about the legacy daemon
+	bufList := new(bytes.Buffer)
+	rootCmd.SetOut(bufList)
+	rootCmd.SetErr(bufList)
+	rootCmd.SetArgs([]string{"exclude", "list"})
+	require.Equal(t, ExitOK, Execute(), bufList.String())
+
+	outList := bufList.String()
+	assert.Contains(t, outList, "InitialGame")
+	assert.Contains(t, outList, "FallbackGame")
+	assert.Contains(t, outList, "running daemon does not support live exclude updates")
 }
 
