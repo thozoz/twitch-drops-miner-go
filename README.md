@@ -212,7 +212,8 @@ Swap `image: ghcr.io/thozoz/tdm:latest` for `build: .` in `docker-compose.yml` (
 | `tdm stop` | Gracefully stops the running background daemon over the IPC socket. |
 | `tdm status` | Shows current operational status, channel, active drop, progress, and ETA. |
 | `tdm logs` | Displays recent logs from memory buffer (`-f` to stream live). |
-| `tdm priority` | Manages game priority list (`list`, `add <games...>`, `set <games...>`). |
+| `tdm priority` | Manages game priority list (`list`, `add <games...>`, `remove <games...>`, `set <games...>`). |
+| `tdm exclude` | Manages excluded (blacklisted) games (`list`, `add <games...>`, `remove <games...>`, `set <games...>`). |
 | `tdm run` | Runs the mining supervisor in the foreground (useful for systemd / Docker). |
 | `tdm mine` | Runs a single one-shot mining session and exits upon completion. |
 
@@ -260,9 +261,32 @@ tdm priority list
 # Add games to priority list:
 tdm priority add "Rust" "World of Warcraft"
 
+# Remove games from priority list:
+tdm priority remove "World of Warcraft"
+
 # Overwrite priority list:
 tdm priority set "Special Events" "Fortnite" "Rust"
 ```
+
+##### `tdm exclude`
+
+Games on the exclude list are never mined, whatever their campaign priority.
+
+```bash
+# View current exclude list:
+tdm exclude list
+
+# Add games to the exclude list:
+tdm exclude add "Kakele Online - MMORPG" "Special Events"
+
+# Remove games from the exclude list:
+tdm exclude remove "Special Events"
+
+# Overwrite the exclude list:
+tdm exclude set "Kakele Online - MMORPG" "ROBLOX"
+```
+
+Matching is case-sensitive on the exact Twitch category name, the same comparison the campaign selector performs -- `ROBLOX` and `Roblox` are different entries. Use the name as `tdm inventory list` prints it. Removing a game that is not on the list succeeds and changes nothing.
 
 ---
 
@@ -337,7 +361,7 @@ Environment variables take precedence over config files:
 
 A path named through `--config` or `TDM_CONFIG` must exist — tdm reports an error rather than silently falling back to defaults. A missing file at the default location is fine and simply means no config has been written yet.
 
-`tdm priority add/set` writes back to whichever file was resolved, so runtime changes survive a restart.
+`tdm priority add/remove/set` and `tdm exclude add/remove/set` write back to whichever file was resolved, so runtime changes survive a restart. Both work with the daemon running (applied live at the next campaign-selection boundary, then persisted) and without it (written straight to the config file, applied at next start -- the command says which happened).
 
 `tdm config set <key> <value>` writes a single setting to the resolved config file and works whether or not the daemon is running. Settable keys today:
 - `enable_badges_emotes` (`true`/`false`, default `false`): include campaigns whose rewards are exclusively badges or emotes in the mining candidate pool. Unlike `priority`, this setting is read once at daemon startup, not live -- after changing it, restart tdm (`tdm stop && tdm start`) for it to take effect. `tdm inventory list` marks any campaign it skips with the reason (`[skipped: ...]`), so you can tell a badge/emote skip from an unlinked-account skip without checking the docs.
