@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/sourcegraph/jsonrpc2"
 	"github.com/spf13/cobra"
 	"github.com/thozoz/twitch-drops-miner-go/internal/config"
 	"github.com/thozoz/twitch-drops-miner-go/internal/ipc"
@@ -86,6 +88,11 @@ func executeExcludeCall(cmd *cobra.Command, params ipc.ExcludeParams) error {
 
 	var result ipc.ExcludeResult
 	if err := ipc.Call(ctx, conn, ipc.MethodExclude, params, &result); err != nil {
+		var jErr *jsonrpc2.Error
+		if errors.As(err, &jErr) && jErr.Code == jsonrpc2.CodeMethodNotFound {
+			// Running daemon predates daemon.Exclude method. Fall back to offline config file.
+			return executeExcludeOffline(cmd, params)
+		}
 		return &CommandError{Code: ExitError, Err: err}
 	}
 

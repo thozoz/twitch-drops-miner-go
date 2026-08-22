@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/adrg/xdg"
+	"github.com/sourcegraph/jsonrpc2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/thozoz/twitch-drops-miner-go/internal/config"
@@ -326,3 +327,66 @@ func TestPriorityCmd_RemoveRoundTrip(t *testing.T) {
 	assert.Equal(t, ipc.PriorityRemove, handler.lastParams.Action)
 	assert.Equal(t, []string{"Valorant"}, handler.lastParams.Games)
 }
+
+type legacyExcludeServerHandler struct{}
+
+func (h *legacyExcludeServerHandler) Handle(ctx context.Context, conn *jsonrpc2.Conn, req *jsonrpc2.Request) {
+	_ = conn.ReplyWithError(ctx, req.ID, &jsonrpc2.Error{
+		Code:    jsonrpc2.CodeMethodNotFound,
+		Message: "method not found: daemon.Exclude",
+	})
+}
+
+func TestExcludeCmd_LegacyDaemonMethodNotFound_FallsBackToOffline(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", tempDir)
+	t.Setenv("XDG_CONFIG_HOME", tempDir)
+	t.Setenv("XDG_RUNTIME_DIR", tempDir)
+	xdg.Reload()
+	t.Cleanup(func() { xdg.Reload() })
+
+	cfgPath, err := config.ConfigFilePath()
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(cfgPath), 0o755))
+	require.NoError(t, os.WriteFile(cfgPath, []byte(`{"exclude":["InitialGame"]}`), 0o600))
+
+	addr, err := config.SocketPath()
+	require.NoError(t, err)
+
+	ln, err := ipc.Bind(addr)
+	require.NoError(t, err)
+	defer func() { _ = ipc.Unbind(ln, addr) }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	serverDone := make(chan error, 1)
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				serverDone <- nil
+				return
+			}
+			jsonrpc2.NewConn(ctx, jsonrpc2.NewPlainObjectStream(conn), &legacyExcludeServerHandler{})
+		}
+	}()
+	defer func() {
+		cancel()
+		_ = ln.Close()
+		<-serverDone
+	}()
+
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{"exclude", "add", "FallbackGame"})
+	require.Equal(t, ExitOK, Execute(), buf.String())
+
+	out := buf.String()
+	assert.Contains(t, out, "FallbackGame")
+	assert.Contains(t, out, "takes effect on next start")
+
+	cfg, err := config.Load(cfgPath)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"InitialGame", "FallbackGame"}, cfg.Exclude)
+}
+
