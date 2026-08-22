@@ -108,6 +108,12 @@ func (r routingHandler) Handle(ctx context.Context, conn *jsonrpc2.Conn, req *js
 
 // Serve accepts incoming connections on ln, dispatching JSON-RPC 2.0 requests to h until ctx is canceled.
 func Serve(ctx context.Context, ln net.Listener, h Handler) error {
+	return ServeRaw(ctx, ln, routingHandler{h: h})
+}
+
+// ServeRaw accepts incoming connections on ln and dispatches raw JSON-RPC requests to h.
+// It manages listener and connection lifecycles uniformly.
+func ServeRaw(ctx context.Context, ln net.Listener, h jsonrpc2.Handler) error {
 	var wg sync.WaitGroup
 
 	// Ensure listener is closed on context cancellation
@@ -134,7 +140,7 @@ func Serve(ctx context.Context, ln net.Listener, h Handler) error {
 		wg.Add(1)
 		go func(c net.Conn) {
 			defer wg.Done()
-			jc := jsonrpc2.NewConn(ctx, jsonrpc2.NewPlainObjectStream(c), routingHandler{h: h})
+			jc := jsonrpc2.NewConn(ctx, jsonrpc2.NewPlainObjectStream(c), h)
 			defer func() {
 				_ = jc.Close()
 				_ = c.Close()
