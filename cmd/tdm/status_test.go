@@ -30,6 +30,10 @@ func (m *mockStatusHandler) Priority(ctx context.Context, p ipc.PriorityParams) 
 	return m.priorityResult, nil
 }
 
+func (m *mockStatusHandler) Exclude(ctx context.Context, p ipc.ExcludeParams) (ipc.ExcludeResult, error) {
+	return ipc.ExcludeResult{}, nil
+}
+
 func (m *mockStatusHandler) Shutdown(ctx context.Context, p ipc.ShutdownParams) (ipc.ShutdownResult, error) {
 	return ipc.ShutdownResult{Status: "shutting_down"}, nil
 }

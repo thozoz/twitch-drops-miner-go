@@ -11,6 +11,7 @@ import (
 const (
 	MethodStatus     = "daemon.Status"
 	MethodPriority   = "daemon.Priority"
+	MethodExclude    = "daemon.Exclude"
 	MethodShutdown   = "daemon.Shutdown"
 	MethodGetLogs    = "daemon.GetLogs"
 	MethodStreamLogs = "daemon.StreamLogs"
@@ -39,9 +40,10 @@ type StatusResult struct {
 type PriorityAction string
 
 const (
-	PriorityList PriorityAction = "list"
-	PriorityAdd  PriorityAction = "add"
-	PrioritySet  PriorityAction = "set"
+	PriorityList   PriorityAction = "list"
+	PriorityAdd    PriorityAction = "add"
+	PriorityRemove PriorityAction = "remove"
+	PrioritySet    PriorityAction = "set"
 )
 
 // PriorityParams contains parameters for daemon.Priority.
@@ -53,6 +55,29 @@ type PriorityParams struct {
 // PriorityResult contains the effective priority game list after an operation.
 type PriorityResult struct {
 	Priority []string `json:"priority"`
+}
+
+// ExcludeAction defines the mutation or query action for excluded games.
+// It mirrors PriorityAction rather than reusing it so the two lists can diverge
+// later (e.g. an exclude-only "clear") without silently widening the priority API.
+type ExcludeAction string
+
+const (
+	ExcludeList   ExcludeAction = "list"
+	ExcludeAdd    ExcludeAction = "add"
+	ExcludeRemove ExcludeAction = "remove"
+	ExcludeSet    ExcludeAction = "set"
+)
+
+// ExcludeParams contains parameters for daemon.Exclude.
+type ExcludeParams struct {
+	Action ExcludeAction `json:"action"`
+	Games  []string      `json:"games"`
+}
+
+// ExcludeResult contains the effective excluded game list after an operation.
+type ExcludeResult struct {
+	Exclude []string `json:"exclude"`
 }
 
 // ShutdownParams contains parameters for daemon.Shutdown.
@@ -86,6 +111,7 @@ type LogEntryNotification struct {
 type Handler interface {
 	Status(ctx context.Context) (StatusResult, error)
 	Priority(ctx context.Context, p PriorityParams) (PriorityResult, error)
+	Exclude(ctx context.Context, p ExcludeParams) (ExcludeResult, error)
 	Shutdown(ctx context.Context, p ShutdownParams) (ShutdownResult, error)
 	GetLogs(ctx context.Context, p GetLogsParams) (GetLogsResult, error)
 	StreamLogs(ctx context.Context, conn *jsonrpc2.Conn, p GetLogsParams) error

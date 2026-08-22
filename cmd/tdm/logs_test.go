@@ -48,6 +48,10 @@ func (m *mockLogsHandler) Priority(ctx context.Context, p ipc.PriorityParams) (i
 	return ipc.PriorityResult{}, nil
 }
 
+func (m *mockLogsHandler) Exclude(ctx context.Context, p ipc.ExcludeParams) (ipc.ExcludeResult, error) {
+	return ipc.ExcludeResult{}, nil
+}
+
 func (m *mockLogsHandler) Shutdown(ctx context.Context, p ipc.ShutdownParams) (ipc.ShutdownResult, error) {
 	return ipc.ShutdownResult{Status: "shutting_down"}, nil
 }

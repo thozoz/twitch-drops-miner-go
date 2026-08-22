@@ -36,6 +36,11 @@ func (h *Handler) Priority(ctx context.Context, p ipc.PriorityParams) (ipc.Prior
 	return h.sup.UpdatePriority(ctx, p)
 }
 
+// Exclude handles daemon.Exclude requests by delegating to the supervisor.
+func (h *Handler) Exclude(ctx context.Context, p ipc.ExcludeParams) (ipc.ExcludeResult, error) {
+	return h.sup.UpdateExclude(ctx, p)
+}
+
 // Shutdown initiates graceful termination by canceling the daemon context.
 func (h *Handler) Shutdown(ctx context.Context, p ipc.ShutdownParams) (ipc.ShutdownResult, error) {
 	if h.cancel != nil {

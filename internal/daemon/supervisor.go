@@ -60,6 +60,10 @@ func WithEnableBadgesEmotes(enabled bool) SupervisorOption {
 // field so tests can substitute a failing writer without touching the filesystem.
 var persistPriority = config.SavePriority
 
+// persistExclude is the hook used to write the exclude list to disk. It is a
+// variable for the same reason persistPriority is: tests swap it out.
+var persistExclude = config.SaveExclude
+
 // Supervisor manages the long-lived campaign/channel selection and watch loop.
 type Supervisor struct {
 	fetchInventory  func(ctx context.Context) ([]inventory.DropsCampaign, error)
@@ -344,6 +348,8 @@ func (s *Supervisor) UpdatePriority(ctx context.Context, p ipc.PriorityParams) (
 				s.priority = append(s.priority, g)
 			}
 		}
+	case ipc.PriorityRemove:
+		s.priority = removeGames(s.priority, p.Games)
 	case ipc.PrioritySet:
 		s.priority = append([]string(nil), p.Games...)
 	}
@@ -365,6 +371,85 @@ func (s *Supervisor) UpdatePriority(ctx context.Context, p ipc.PriorityParams) (
 	return ipc.PriorityResult{
 		Priority: append([]string(nil), s.priority...),
 	}, nil
+}
+
+// UpdateExclude updates or queries the excluded game list.
+//
+// It mirrors UpdatePriority exactly — same lock, same persist-or-roll-back
+// contract — because an exclude that survives in memory but not on disk is the
+// same trap as a priority that does: the operator sees the game disappear from
+// selection, restarts, and it silently comes back.
+//
+// Matching stays case-sensitive on Game.Name, the same comparison
+// inventory.SelectCampaign performs; normalizing here would make the CLI accept
+// entries that then never match a campaign.
+func (s *Supervisor) UpdateExclude(ctx context.Context, p ipc.ExcludeParams) (ipc.ExcludeResult, error) {
+	s.priorityMu.Lock()
+	defer s.priorityMu.Unlock()
+
+	previous := append([]string(nil), s.exclude...)
+
+	switch p.Action {
+	case ipc.ExcludeList:
+		// read-only no-op
+	case ipc.ExcludeAdd:
+		for _, g := range p.Games {
+			found := false
+			for _, existing := range s.exclude {
+				if existing == g {
+					found = true
+					break
+				}
+			}
+			if !found {
+				s.exclude = append(s.exclude, g)
+			}
+		}
+	case ipc.ExcludeRemove:
+		s.exclude = removeGames(s.exclude, p.Games)
+	case ipc.ExcludeSet:
+		s.exclude = append([]string(nil), p.Games...)
+	}
+
+	if p.Action != ipc.ExcludeList && s.configPath != "" {
+		if err := persistExclude(s.configPath, s.exclude); err != nil {
+			s.exclude = previous
+			s.logger.Error("failed to persist exclude to config",
+				"path", s.configPath, "error", err)
+			return ipc.ExcludeResult{}, fmt.Errorf("failed to persist exclude to %s: %w", s.configPath, err)
+		}
+	}
+
+	return ipc.ExcludeResult{
+		Exclude: append([]string(nil), s.exclude...),
+	}, nil
+}
+
+// removeGames returns list with every entry in drop removed, preserving the
+// order of what remains. Entries in drop that are not present are ignored, so
+// removing an absent game is a no-op rather than an error — the caller asked
+// for a state, not for a transaction.
+//
+// It always returns a fresh slice so callers never alias the input backing
+// array, matching how the add/set branches build their results.
+func removeGames(list, drop []string) []string {
+	if len(drop) == 0 {
+		return append([]string(nil), list...)
+	}
+
+	dropSet := make(map[string]struct{}, len(drop))
+	for _, g := range drop {
+		dropSet[g] = struct{}{}
+	}
+
+	out := make([]string, 0, len(list))
+	for _, g := range list {
+		if _, found := dropSet[g]; found {
+			continue
+		}
+		out = append(out, g)
+	}
+	return out
 }
 
 // UpdateDropProgress updates the live active drop progress in the supervisor status.

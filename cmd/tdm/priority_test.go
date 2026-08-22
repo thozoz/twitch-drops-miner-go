@@ -17,9 +17,11 @@ import (
 )
 
 type mockPriorityHandler struct {
-	mu             sync.Mutex
-	lastParams     ipc.PriorityParams
-	priorityResult ipc.PriorityResult
+	mu                sync.Mutex
+	lastParams        ipc.PriorityParams
+	priorityResult    ipc.PriorityResult
+	lastExcludeParams ipc.ExcludeParams
+	excludeResult     ipc.ExcludeResult
 }
 
 func (m *mockPriorityHandler) Status(ctx context.Context) (ipc.StatusResult, error) {
@@ -31,6 +33,13 @@ func (m *mockPriorityHandler) Priority(ctx context.Context, p ipc.PriorityParams
 	defer m.mu.Unlock()
 	m.lastParams = p
 	return m.priorityResult, nil
+}
+
+func (m *mockPriorityHandler) Exclude(ctx context.Context, p ipc.ExcludeParams) (ipc.ExcludeResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lastExcludeParams = p
+	return m.excludeResult, nil
 }
 
 func (m *mockPriorityHandler) Shutdown(ctx context.Context, p ipc.ShutdownParams) (ipc.ShutdownResult, error) {

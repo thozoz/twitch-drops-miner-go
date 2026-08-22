@@ -80,3 +80,14 @@ func SavePriority(path string, priority []string) error {
 	}
 	return SaveKey(path, "priority", priority)
 }
+
+// SaveExclude writes the given exclude list into the config file at path,
+// preserving every other key already in the file. See SaveKey for the
+// underlying read-modify-write behavior and guarantees.
+func SaveExclude(path string, exclude []string) error {
+	// Marshal an empty list as [] rather than null so the file stays readable.
+	if exclude == nil {
+		exclude = []string{}
+	}
+	return SaveKey(path, "exclude", exclude)
+}
