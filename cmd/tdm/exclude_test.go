@@ -360,18 +360,10 @@ func TestExcludeCmd_LegacyDaemonMethodNotFound_FallsBackToOffline(t *testing.T) 
 	ctx, cancel := context.WithCancel(context.Background())
 	serverDone := make(chan error, 1)
 	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				serverDone <- nil
-				return
-			}
-			jsonrpc2.NewConn(ctx, jsonrpc2.NewPlainObjectStream(conn), &legacyExcludeServerHandler{})
-		}
+		serverDone <- ipc.ServeRaw(ctx, ln, &legacyExcludeServerHandler{})
 	}()
 	defer func() {
 		cancel()
-		_ = ln.Close()
 		<-serverDone
 	}()
 
