@@ -1,0 +1,27 @@
+# Tüm metin dosyaları depoda ve çalışma kopyasında LF kullanır.
+* text=auto eol=lf
+
+# Go araç zinciri ve kaynak dosyaları
+*.go      text eol=lf
+*.mod     text eol=lf
+*.sum     text eol=lf
+
+# Yapılandırma / veri / betikler
+*.json    text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.md      text eol=lf
+*.sh      text eol=lf
+*.js      text eol=lf
+Makefile  text eol=lf
+Dockerfile text eol=lf
+
+# İkili dosyalar — asla dönüştürme
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.ico     binary
+*.gz      binary
+*.zip     binary
+*.exe     binary
