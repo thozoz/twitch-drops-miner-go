@@ -90,8 +90,9 @@ func executeExcludeCall(cmd *cobra.Command, params ipc.ExcludeParams) error {
 	if err := ipc.Call(ctx, conn, ipc.MethodExclude, params, &result); err != nil {
 		var jErr *jsonrpc2.Error
 		if errors.As(err, &jErr) && jErr.Code == jsonrpc2.CodeMethodNotFound {
-			// Running daemon predates daemon.Exclude method. Fall back to offline config file.
-			return executeExcludeOffline(cmd, params)
+			// Running daemon predates daemon.Exclude method. Fall back to offline config file
+			// with a note explaining the daemon version mismatch.
+			return executeExcludeOfflineWithReason(cmd, params, "running daemon does not support live exclude updates")
 		}
 		return &CommandError{Code: ExitError, Err: err}
 	}
@@ -105,15 +106,19 @@ func executeExcludeCall(cmd *cobra.Command, params ipc.ExcludeParams) error {
 // starts, which the caller is told explicitly so the lack of a running daemon is
 // never mistaken for the change having been applied live.
 func executeExcludeOffline(cmd *cobra.Command, params ipc.ExcludeParams) error {
+	return executeExcludeOfflineWithReason(cmd, params, "tdm is not running")
+}
+
+func executeExcludeOfflineWithReason(cmd *cobra.Command, params ipc.ExcludeParams, reason string) error {
 	path, err := config.ResolveConfigPath(configFile)
 	if err != nil {
-		fmt.Fprintln(cmd.ErrOrStderr(), "tdm is not running, and the config file path could not be resolved")
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s, and the config file path could not be resolved\n", reason)
 		return &CommandError{Code: ExitError, Err: err}
 	}
 
 	cfg, err := config.Load(configFile)
 	if err != nil {
-		fmt.Fprintln(cmd.ErrOrStderr(), "tdm is not running, and the config file could not be read")
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s, and the config file could not be read\n", reason)
 		return &CommandError{Code: ExitError, Err: err}
 	}
 
@@ -135,12 +140,12 @@ func executeExcludeOffline(cmd *cobra.Command, params ipc.ExcludeParams) error {
 	}
 
 	if err := config.SaveExclude(path, updated); err != nil {
-		fmt.Fprintln(cmd.ErrOrStderr(), "tdm is not running, and the config file could not be written")
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s, and the config file could not be written\n", reason)
 		return &CommandError{Code: ExitError, Err: err}
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout(), formatGameList(updated))
-	fmt.Fprintf(cmd.ErrOrStderr(), "tdm is not running; saved to %s, takes effect on next start\n", path)
+	fmt.Fprintf(cmd.ErrOrStderr(), "%s; saved to %s, takes effect on next start\n", reason, path)
 	return nil
 }
 

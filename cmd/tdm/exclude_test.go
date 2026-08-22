@@ -383,6 +383,7 @@ func TestExcludeCmd_LegacyDaemonMethodNotFound_FallsBackToOffline(t *testing.T) 
 
 	out := buf.String()
 	assert.Contains(t, out, "FallbackGame")
+	assert.Contains(t, out, "running daemon does not support live exclude updates")
 	assert.Contains(t, out, "takes effect on next start")
 
 	cfg, err := config.Load(cfgPath)
