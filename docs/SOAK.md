@@ -16,7 +16,7 @@ go test ./internal/daemon/... -run TestSoak -v
 ### What It Proves
 - **`TestSoak_GoroutineCeiling`**: Cycles the supervisor through 200+ rapid mining iterations with active channel resolution and watch runner dispatch. Asserts that total goroutines return to baseline (delta ≤ 3) after execution.
 - **`TestSoak_ErrorPathDoesNotLeak`**: Alternates transient errors on the watch runner path across 200+ iterations. Asserts that error handling, logging, and error count mutations do not leak goroutines or resources.
-- **`TestSoak_TimerDriftBounded`**: Samples timestamp intervals across 50+ reselect cycles. Asserts every interval remains within ±10ms of the configured 20ms backoff, and the final cycle interval exhibits no cumulative drift compared to the first cycle interval (drift difference ≤ 10ms).
+- **`TestSoak_TimerDriftBounded`**: Samples timestamp intervals across 50+ reselect cycles. Asserts the *mean* interval stays within ±10ms of the configured 20ms backoff, that no individual interval exceeds the 100ms jitter ceiling (tolerating OS timer granularity without masking a stall), and that the final cycle interval exhibits no cumulative drift compared to the first cycle interval (drift difference ≤ 10ms).
 
 ---
 

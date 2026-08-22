@@ -196,7 +196,7 @@ func TestSoak_TimerDriftBounded(t *testing.T) {
 	firstInterval := intervals[0]
 	lastInterval := intervals[len(intervals)-1]
 	driftDiff := time.Duration(math.Abs(float64(lastInterval - firstInterval)))
-	driftTolerance := 15 * time.Millisecond
+	driftTolerance := 10 * time.Millisecond
 
 	t.Logf("TimerDriftBounded: %d intervals recorded. min=%v, max=%v, mean=%v, first=%v, last=%v, first-vs-last diff=%v",
 		len(intervals), minInterval, maxInterval, meanInterval, firstInterval, lastInterval, driftDiff)
