@@ -17,11 +17,13 @@ import (
 )
 
 type stubHandler struct {
-	statusResult   StatusResult
-	priorityResult PriorityResult
-	shutdownResult ShutdownResult
-	getLogsResult  GetLogsResult
-	streamLines    []string
+	statusResult      StatusResult
+	priorityResult    PriorityResult
+	lastExcludeParams ExcludeParams
+	excludeResult     ExcludeResult
+	shutdownResult    ShutdownResult
+	getLogsResult     GetLogsResult
+	streamLines       []string
 }
 
 func (s *stubHandler) Status(ctx context.Context) (StatusResult, error) {
@@ -30,6 +32,11 @@ func (s *stubHandler) Status(ctx context.Context) (StatusResult, error) {
 
 func (s *stubHandler) Priority(ctx context.Context, p PriorityParams) (PriorityResult, error) {
 	return s.priorityResult, nil
+}
+
+func (s *stubHandler) Exclude(ctx context.Context, p ExcludeParams) (ExcludeResult, error) {
+	s.lastExcludeParams = p
+	return s.excludeResult, nil
 }
 
 func (s *stubHandler) Shutdown(ctx context.Context, p ShutdownParams) (ShutdownResult, error) {

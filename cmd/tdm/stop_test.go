@@ -26,6 +26,10 @@ func (s *stubStopHandler) Priority(ctx context.Context, p ipc.PriorityParams) (i
 	return ipc.PriorityResult{}, nil
 }
 
+func (s *stubStopHandler) Exclude(ctx context.Context, p ipc.ExcludeParams) (ipc.ExcludeResult, error) {
+	return ipc.ExcludeResult{}, nil
+}
+
 func (s *stubStopHandler) Shutdown(ctx context.Context, p ipc.ShutdownParams) (ipc.ShutdownResult, error) {
 	if s.onShutdown != nil {
 		go s.onShutdown()

@@ -40,6 +40,21 @@ func (r routingHandler) Handle(ctx context.Context, conn *jsonrpc2.Conn, req *js
 		}
 		_ = conn.Reply(ctx, req.ID, res)
 
+	case MethodExclude:
+		var p ExcludeParams
+		if req.Params != nil {
+			if err := json.Unmarshal(*req.Params, &p); err != nil {
+				_ = conn.ReplyWithError(ctx, req.ID, &jsonrpc2.Error{Code: jsonrpc2.CodeInvalidParams, Message: err.Error()})
+				return
+			}
+		}
+		res, err := r.h.Exclude(ctx, p)
+		if err != nil {
+			_ = conn.ReplyWithError(ctx, req.ID, &jsonrpc2.Error{Code: jsonrpc2.CodeInternalError, Message: err.Error()})
+			return
+		}
+		_ = conn.Reply(ctx, req.ID, res)
+
 	case MethodShutdown:
 		var p ShutdownParams
 		if req.Params != nil {
