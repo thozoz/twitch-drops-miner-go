@@ -1,0 +1,9 @@
+[review_agent]
+issues_user_guidelines = """
+- Do not assert whether a specific version of a package, GitHub Action, container image, or external dependency exists, is the latest, or has been yanked. You cannot verify this. If a version looks suspicious, you may ask the author to confirm as an unverified question, never as a statement of fact, and never with high importance.
+- Never claim an external entity or version 'does not exist' and avoid present-tense assertions about the external world ('as of today', 'currently').
+"""
+
+compliance_user_guidelines = """
+- Treat '#N' references in the PR description as ambiguous (they may refer to pull requests or related work, not just issue tickets). Do not report ticket non-compliance solely based on such a reference appearing in the description.
+"""
