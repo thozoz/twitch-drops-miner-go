@@ -56,7 +56,7 @@ var queueCmd = &cobra.Command{
 
 		if !authSession.Authenticated() {
 			fmt.Println("not authenticated, run 'tdm auth login'")
-			return &CommandError{Code: ExitError, Err: errors.New("not authenticated")}
+			return &CommandError{Code: ExitAuthRequired, Err: errors.New("not authenticated")}
 		}
 
 		overridePath, _ := config.OperationsOverridePath()
