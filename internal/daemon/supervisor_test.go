@@ -64,7 +64,7 @@ func TestSupervisor_PriorityAppliesAtNextSwitchNotMidWatch(t *testing.T) {
 		return []inventory.DropsCampaign{campA, campB}, nil
 	}
 
-	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign) (*model.Channel, error) {
+	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) {
 		g := c.Game
 		return &model.Channel{
 			ID:          "ch-" + c.Game.Name,
@@ -177,7 +177,7 @@ func TestSupervisor_StatusReflectsProgress(t *testing.T) {
 		return []inventory.DropsCampaign{camp}, nil
 	}
 
-	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign) (*model.Channel, error) {
+	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) {
 		ch := makeTestChannel("ch1", "streamer1", "Streamer 1", c.Game.Name)
 		return &ch, nil
 	}
@@ -248,7 +248,7 @@ func TestSupervisor_ResolvedChannelNotEarnable_IdlesAndDoesNotWatch(t *testing.T
 	}
 
 	// Channel resolution succeeds (returns a live channel)
-	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign) (*model.Channel, error) {
+	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) {
 		ch := makeTestChannel("ch1", "streamer1", "Streamer 1", c.Game.Name)
 		return &ch, nil
 	}
@@ -309,7 +309,7 @@ func TestSupervisor_NoEligibleCampaign_IdlesAndRetries(t *testing.T) {
 		return []inventory.DropsCampaign{camp}, nil
 	}
 
-	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign) (*model.Channel, error) {
+	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) {
 		return nil, nil
 	}
 
@@ -360,7 +360,7 @@ func newPriorityTestSupervisor(t *testing.T, opts ...SupervisorOption) *Supervis
 	t.Helper()
 	return NewSupervisor(
 		func(ctx context.Context) ([]inventory.DropsCampaign, error) { return nil, nil },
-		func(ctx context.Context, c inventory.DropsCampaign) (*model.Channel, error) { return nil, nil },
+		func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) { return nil, nil },
 		nil,
 		[]string{"Existing"},
 		nil,

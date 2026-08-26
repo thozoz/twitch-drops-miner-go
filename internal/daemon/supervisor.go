@@ -81,7 +81,7 @@ var persistDropExclude = config.SaveDropExclude
 // Supervisor manages the long-lived campaign/channel selection and watch loop.
 type Supervisor struct {
 	fetchInventory  func(ctx context.Context) ([]inventory.DropsCampaign, error)
-	resolveChannel  func(ctx context.Context, c inventory.DropsCampaign) (*model.Channel, error)
+	resolveChannel  func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error)
 	runWatch        func(ctx context.Context, campaign inventory.DropsCampaign, ch model.Channel) (*inventory.TimedDrop, error)
 	logger          *slog.Logger
 	reselectBackoff time.Duration
@@ -109,7 +109,7 @@ type Supervisor struct {
 // NewSupervisor creates a Supervisor with injected fetch and resolve closures.
 func NewSupervisor(
 	fetchInventory func(ctx context.Context) ([]inventory.DropsCampaign, error),
-	resolveChannel func(ctx context.Context, c inventory.DropsCampaign) (*model.Channel, error),
+	resolveChannel func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error),
 	logger *slog.Logger,
 	priority, exclude []string,
 	opts ...SupervisorOption,
@@ -173,8 +173,8 @@ func NewProductionSupervisor(
 		return eligible, nil
 	}
 
-	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign) (*model.Channel, error) {
-		return inventory.ResolveChannel(ctx, gqlClient, c)
+	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) {
+		return inventory.ResolveChannel(ctx, gqlClient, c, dropExclude...)
 	}
 
 	allOpts := append([]SupervisorOption{WithEnableBadgesEmotes(enableBadgesEmotes)}, opts...)
@@ -227,7 +227,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			continue
 		}
 
-		ch, err := s.resolveChannel(ctx, *selected)
+		ch, err := s.resolveChannel(ctx, *selected, dropExclude...)
 		if err != nil || ch == nil {
 			if err != nil {
 				s.logger.Warn("failed to resolve channel for selected campaign", "campaign", selected.Name, "error", err)

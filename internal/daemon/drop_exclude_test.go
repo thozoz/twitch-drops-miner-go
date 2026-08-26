@@ -5,7 +5,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,7 +22,7 @@ func newDropExcludeTestSupervisor(t *testing.T, opts ...SupervisorOption) *Super
 	allOpts := append([]SupervisorOption{WithDropExclude([]string{"Existing"})}, opts...)
 	return NewSupervisor(
 		func(ctx context.Context) ([]inventory.DropsCampaign, error) { return nil, nil },
-		func(ctx context.Context, c inventory.DropsCampaign) (*model.Channel, error) { return nil, nil },
+		func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) { return nil, nil },
 		nil,
 		nil,
 		nil,
@@ -162,4 +164,61 @@ func TestSupervisor_DropExcludeReturnsLiveCopy(t *testing.T) {
 
 	got[0] = "mutated"
 	assert.Equal(t, []string{"Existing"}, s.DropExclude(), "callers must not be able to mutate supervisor state")
+}
+
+func TestSupervisor_RunForwardsDropExcludeToResolveChannel(t *testing.T) {
+	camp := makeTestCampaign("c1", "Campaign 1", "Game1")
+
+	fetchInventory := func(ctx context.Context) ([]inventory.DropsCampaign, error) {
+		return []inventory.DropsCampaign{camp}, nil
+	}
+
+	var mu sync.Mutex
+	var gotDropExclude []string
+	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) {
+		mu.Lock()
+		gotDropExclude = append([]string(nil), dropExclude...)
+		mu.Unlock()
+		ch := makeTestChannel("ch1", "streamer1", "Streamer 1", c.Game.Name)
+		return &ch, nil
+	}
+
+	sup := NewSupervisor(
+		fetchInventory,
+		resolveChannel,
+		nil,
+		nil,
+		nil,
+		WithDropExclude([]string{"cosmetic"}),
+		WithReselectBackoff(5*time.Millisecond),
+		WithWatchRunner(func(ctx context.Context, campaign inventory.DropsCampaign, ch model.Channel) (*inventory.TimedDrop, error) {
+			return nil, nil
+		}),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- sup.Run(ctx)
+	}()
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(gotDropExclude) > 0
+	}, 2*time.Second, 10*time.Millisecond, "resolveChannel must have been called")
+
+	mu.Lock()
+	assert.Equal(t, []string{"cosmetic"}, gotDropExclude, "Run must forward the live dropExclude list to resolveChannel")
+	mu.Unlock()
+
+	cancel()
+	select {
+	case err := <-runDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("supervisor Run did not terminate promptly")
+	}
 }

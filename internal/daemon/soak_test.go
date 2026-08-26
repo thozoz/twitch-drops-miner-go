@@ -23,7 +23,7 @@ func TestSoak_GoroutineCeiling(t *testing.T) {
 		return []inventory.DropsCampaign{camp}, nil
 	}
 
-	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign) (*model.Channel, error) {
+	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) {
 		ch := makeTestChannel("ch1", "streamer1", "Streamer 1", c.Game.Name)
 		return &ch, nil
 	}
@@ -72,7 +72,7 @@ func TestSoak_ErrorPathDoesNotLeak(t *testing.T) {
 		return []inventory.DropsCampaign{camp}, nil
 	}
 
-	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign) (*model.Channel, error) {
+	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) {
 		ch := makeTestChannel("ch1", "streamer1", "Streamer 1", c.Game.Name)
 		return &ch, nil
 	}
@@ -124,7 +124,7 @@ func TestSoak_TimerDriftBounded(t *testing.T) {
 		return []inventory.DropsCampaign{camp}, nil
 	}
 
-	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign) (*model.Channel, error) {
+	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) {
 		ch := makeTestChannel("ch1", "streamer1", "Streamer 1", c.Game.Name)
 		return &ch, nil
 	}
