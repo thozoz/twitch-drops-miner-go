@@ -7,5 +7,6 @@ type Config struct {
 	LogFile            string   `koanf:"log_file" json:"log_file"`
 	Priority           []string `koanf:"priority" json:"priority"`
 	Exclude            []string `koanf:"exclude" json:"exclude"`
+	DropExclude        []string `koanf:"drop_exclude" json:"drop_exclude"`
 	EnableBadgesEmotes bool     `koanf:"enable_badges_emotes" json:"enable_badges_emotes"`
 }

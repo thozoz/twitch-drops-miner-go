@@ -167,15 +167,17 @@ func ResolveCandidates(ctx context.Context, client *gql.Client, campaign DropsCa
 	return candidates, nil
 }
 
-// ResolveChannel returns the primary live channel candidate for a campaign that can earn drops right now, or nil if none is live/eligible.
-func ResolveChannel(ctx context.Context, client *gql.Client, campaign DropsCampaign) (*model.Channel, error) {
+// ResolveChannel returns the primary live channel candidate for a campaign
+// that can earn drops right now, or nil if none is live/eligible. dropExclude
+// is forwarded to DropsCampaign.CanEarn.
+func ResolveChannel(ctx context.Context, client *gql.Client, campaign DropsCampaign, dropExclude ...string) (*model.Channel, error) {
 	candidates, err := ResolveCandidates(ctx, client, campaign)
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now()
 	for i := range candidates {
-		if campaign.CanEarn(now, &candidates[i]) {
+		if campaign.CanEarn(now, &candidates[i], dropExclude...) {
 			res := candidates[i]
 			return &res, nil
 		}

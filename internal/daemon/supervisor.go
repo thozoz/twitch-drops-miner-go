@@ -56,6 +56,15 @@ func WithEnableBadgesEmotes(enabled bool) SupervisorOption {
 	}
 }
 
+// WithDropExclude seeds the initial drop-name/benefit keyword exclusion list.
+// It is a SupervisorOption rather than a constructor positional argument (like
+// priority/exclude) so existing NewSupervisor call sites do not need updating.
+func WithDropExclude(list []string) SupervisorOption {
+	return func(s *Supervisor) {
+		s.dropExclude = append([]string(nil), list...)
+	}
+}
+
 // persistPriority is the hook used to write the priority list to disk. It is a
 // field so tests can substitute a failing writer without touching the filesystem.
 var persistPriority = config.SavePriority
@@ -63,6 +72,11 @@ var persistPriority = config.SavePriority
 // persistExclude is the hook used to write the exclude list to disk. It is a
 // variable for the same reason persistPriority is: tests swap it out.
 var persistExclude = config.SaveExclude
+
+// persistDropExclude is the hook used to write the drop-name/benefit keyword
+// exclude list to disk. It is a variable for the same reason persistPriority is:
+// tests swap it out.
+var persistDropExclude = config.SaveDropExclude
 
 // Supervisor manages the long-lived campaign/channel selection and watch loop.
 type Supervisor struct {
@@ -82,9 +96,10 @@ type Supervisor struct {
 	// takes effect on the next daemon restart.
 	enableBadgesEmotes bool
 
-	priorityMu sync.RWMutex
-	priority   []string
-	exclude    []string
+	priorityMu  sync.RWMutex
+	priority    []string
+	exclude     []string
+	dropExclude []string
 
 	statusMu   sync.RWMutex
 	status     ipc.StatusResult
@@ -190,13 +205,14 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			continue
 		}
 
-		// Read fresh priority and exclude at every selection boundary (DMN-06)
+		// Read fresh priority, exclude, and dropExclude at every selection boundary (DMN-06)
 		s.priorityMu.RLock()
 		priority := append([]string(nil), s.priority...)
 		exclude := append([]string(nil), s.exclude...)
+		dropExclude := append([]string(nil), s.dropExclude...)
 		s.priorityMu.RUnlock()
 
-		selected := inventory.SelectCampaign(eligible, priority, exclude, time.Now(), s.enableBadgesEmotes)
+		selected := inventory.SelectCampaign(eligible, priority, exclude, time.Now(), s.enableBadgesEmotes, dropExclude...)
 		if selected == nil {
 			s.statusMu.Lock()
 			s.status = ipc.StatusResult{
@@ -236,7 +252,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			continue
 		}
 
-		initialDrop, ok := selected.FirstEarnableDrop(time.Now(), ch)
+		initialDrop, ok := selected.FirstEarnableDrop(time.Now(), ch, dropExclude...)
 		if !ok || initialDrop == nil {
 			s.logger.Info("selected campaign has no earnable drop on resolved channel",
 				"campaign", selected.Name,
@@ -422,6 +438,66 @@ func (s *Supervisor) UpdateExclude(ctx context.Context, p ipc.ExcludeParams) (ip
 
 	return ipc.ExcludeResult{
 		Exclude: append([]string(nil), s.exclude...),
+	}, nil
+}
+
+// DropExclude returns a copy of the current drop-name/benefit keyword exclude
+// list. It exists for callers like the watch-session runner, constructed
+// before the Supervisor selects a campaign, that need the live list rather
+// than whatever was configured at daemon startup.
+func (s *Supervisor) DropExclude() []string {
+	s.priorityMu.RLock()
+	defer s.priorityMu.RUnlock()
+	return append([]string(nil), s.dropExclude...)
+}
+
+// UpdateDropExclude updates or queries the drop-name/benefit keyword exclude list.
+//
+// It mirrors UpdateExclude exactly — same lock, same persist-or-roll-back
+// contract — for the same reason: a keyword that survives in memory but not on
+// disk vanishes silently on restart. Matching against drop names/benefits is
+// case-insensitive substring matching (see inventory.DropsCampaign.CanEarn),
+// but the keyword list itself is deduplicated case-sensitively here, the same
+// as priority/exclude.
+func (s *Supervisor) UpdateDropExclude(ctx context.Context, p ipc.DropExcludeParams) (ipc.DropExcludeResult, error) {
+	s.priorityMu.Lock()
+	defer s.priorityMu.Unlock()
+
+	previous := append([]string(nil), s.dropExclude...)
+
+	switch p.Action {
+	case ipc.DropExcludeList:
+		// read-only no-op
+	case ipc.DropExcludeAdd:
+		for _, kw := range p.Keywords {
+			found := false
+			for _, existing := range s.dropExclude {
+				if existing == kw {
+					found = true
+					break
+				}
+			}
+			if !found {
+				s.dropExclude = append(s.dropExclude, kw)
+			}
+		}
+	case ipc.DropExcludeRemove:
+		s.dropExclude = removeGames(s.dropExclude, p.Keywords)
+	case ipc.DropExcludeSet:
+		s.dropExclude = append([]string(nil), p.Keywords...)
+	}
+
+	if p.Action != ipc.DropExcludeList && s.configPath != "" {
+		if err := persistDropExclude(s.configPath, s.dropExclude); err != nil {
+			s.dropExclude = previous
+			s.logger.Error("failed to persist drop exclude to config",
+				"path", s.configPath, "error", err)
+			return ipc.DropExcludeResult{}, fmt.Errorf("failed to persist drop exclude to %s: %w", s.configPath, err)
+		}
+	}
+
+	return ipc.DropExcludeResult{
+		DropExclude: append([]string(nil), s.dropExclude...),
 	}, nil
 }
 

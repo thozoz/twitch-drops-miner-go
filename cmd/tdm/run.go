@@ -108,17 +108,21 @@ var runCmd = &cobra.Command{
 					supervisor.UpdateDropProgress(d)
 				}
 			}))
+			if supervisor != nil {
+				sessionOpts = append(sessionOpts, session.WithDropExclude(supervisor.DropExclude()))
+			}
 			watchSession := session.NewWatchSession(gqlClient, watcher, pubsubClient, userID, runLogger, sessionOpts...)
 			err := watchSession.Run(wCtx, campaign, ch)
 			drop := watchSession.ActiveDrop()
 			return drop, err
 		}
 
-		var priority, exclude []string
+		var priority, exclude, dropExclude []string
 		enableBadgesEmotes := false
 		if cfg != nil {
 			priority = cfg.Priority
 			exclude = cfg.Exclude
+			dropExclude = cfg.DropExclude
 			enableBadgesEmotes = cfg.EnableBadgesEmotes
 		}
 
@@ -141,6 +145,7 @@ var runCmd = &cobra.Command{
 			enableBadgesEmotes,
 			daemon.WithWatchRunner(runWatch),
 			daemon.WithConfigPath(resolvedConfigPath),
+			daemon.WithDropExclude(dropExclude),
 		)
 
 		handler := daemon.NewHandler(supervisor, runCancel, ring)

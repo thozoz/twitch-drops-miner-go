@@ -81,11 +81,12 @@ var mineCmd = &cobra.Command{
 		}
 
 		cfg := config.FromContext(ctx)
-		var priority, exclude []string
+		var priority, exclude, dropExclude []string
 		enableBadgesEmotes := false
 		if cfg != nil {
 			priority = cfg.Priority
 			exclude = cfg.Exclude
+			dropExclude = cfg.DropExclude
 			enableBadgesEmotes = cfg.EnableBadgesEmotes
 		}
 
@@ -100,13 +101,13 @@ var mineCmd = &cobra.Command{
 			)
 		}
 
-		selected := inventory.SelectCampaign(eligible, priority, exclude, time.Now(), enableBadgesEmotes)
+		selected := inventory.SelectCampaign(eligible, priority, exclude, time.Now(), enableBadgesEmotes, dropExclude...)
 		if selected == nil {
 			fmt.Println("no eligible campaign to mine")
 			return nil
 		}
 
-		resolved, err := inventory.ResolveChannel(ctx, client, *selected)
+		resolved, err := inventory.ResolveChannel(ctx, client, *selected, dropExclude...)
 		if err != nil {
 			logger.Error("failed to resolve channel for selected campaign", "error", err)
 			return &CommandError{Code: ExitError, Err: err}
@@ -138,6 +139,7 @@ var mineCmd = &cobra.Command{
 		} else {
 			sessionOpts = append(sessionOpts, session.WithStatePath(statePath))
 		}
+		sessionOpts = append(sessionOpts, session.WithDropExclude(dropExclude))
 
 		watchSession := session.NewWatchSession(client, channelWatcher, pubsubClient, authSession.Data().UserID, logger, sessionOpts...)
 

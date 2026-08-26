@@ -1,6 +1,7 @@
 package inventory
 
 import (
+	"strings"
 	"time"
 
 	"github.com/thozoz/twitch-drops-miner-go/internal/model"
@@ -132,6 +133,71 @@ func (c DropsCampaign) Expired(now time.Time) bool {
 	return !c.Valid || !now.Before(c.EndsAt)
 }
 
+// matchesAnyKeyword reports whether s contains any of keywords as a
+// case-insensitive substring. Empty keywords are ignored so a stray blank
+// entry in the exclude list can never match everything.
+func matchesAnyKeyword(s string, keywords []string) bool {
+	if s == "" || len(keywords) == 0 {
+		return false
+	}
+	lower := strings.ToLower(s)
+	for _, kw := range keywords {
+		if kw == "" {
+			continue
+		}
+		if strings.Contains(lower, strings.ToLower(kw)) {
+			return true
+		}
+	}
+	return false
+}
+
+// dropExcludedByKeyword reports whether d's name or any of its benefit names
+// matches one of the case-insensitive keywords in dropExclude.
+func dropExcludedByKeyword(d TimedDrop, dropExclude []string) bool {
+	if matchesAnyKeyword(d.Name, dropExclude) {
+		return true
+	}
+	for _, b := range d.Benefits {
+		if matchesAnyKeyword(b.Name, dropExclude) {
+			return true
+		}
+	}
+	return false
+}
+
+// PreconditionStatus reports d's readiness for display purposes:
+//   - "Claimed" if d is already claimed.
+//   - "Excluded" if d matches a drop-name/benefit keyword in dropExclude and
+//     is not claimed — it will never be earned, so it can never satisfy a
+//     dependent drop's precondition.
+//   - "Blocked by <name>" naming the first unmet precondition drop, if any.
+//   - "Ready" otherwise.
+func (c DropsCampaign) PreconditionStatus(d TimedDrop, dropExclude []string) string {
+	if d.IsClaimed {
+		return "Claimed"
+	}
+	if dropExcludedByKeyword(d, dropExclude) {
+		return "Excluded"
+	}
+
+	byID := make(map[string]TimedDrop, len(c.Drops))
+	for _, drop := range c.Drops {
+		byID[drop.ID] = drop
+	}
+	for _, pid := range d.PreconditionDropIDs {
+		pre, ok := byID[pid]
+		if ok && pre.IsClaimed {
+			continue
+		}
+		if ok {
+			return "Blocked by " + pre.Name
+		}
+		return "Blocked by " + pid
+	}
+	return "Ready"
+}
+
 // preconditionsChain returns the set of all drop IDs that serve as preconditions for uncompleted drops.
 func (c DropsCampaign) preconditionsChain() map[string]struct{} {
 	chain := make(map[string]struct{})
@@ -163,8 +229,14 @@ func (c DropsCampaign) dropPreconditionsMet(d TimedDrop) bool {
 	return true
 }
 
-func (c DropsCampaign) dropBaseEarnConditions(d TimedDrop, pChain map[string]struct{}) bool {
+func (c DropsCampaign) dropBaseEarnConditions(d TimedDrop, pChain map[string]struct{}, dropExclude []string) bool {
 	if !c.dropPreconditionsMet(d) || d.IsClaimed || d.RequiredMinutes <= 0 {
+		return false
+	}
+	// An excluded, unclaimed drop is treated as permanently unearnable. Any
+	// dependent drop that lists it as a precondition stays blocked by
+	// dropPreconditionsMet above, since it can never become claimed.
+	if dropExcludedByKeyword(d, dropExclude) {
 		return false
 	}
 	if len(d.Benefits) > 0 {
@@ -174,12 +246,12 @@ func (c DropsCampaign) dropBaseEarnConditions(d TimedDrop, pChain map[string]str
 	return inChain
 }
 
-func (c DropsCampaign) dropBaseCanEarn(d TimedDrop, now time.Time, pChain map[string]struct{}) bool {
-	return c.dropBaseEarnConditions(d, pChain) && !now.Before(d.StartsAt) && now.Before(d.EndsAt)
+func (c DropsCampaign) dropBaseCanEarn(d TimedDrop, now time.Time, pChain map[string]struct{}, dropExclude []string) bool {
+	return c.dropBaseEarnConditions(d, pChain, dropExclude) && !now.Before(d.StartsAt) && now.Before(d.EndsAt)
 }
 
-func (c DropsCampaign) dropCanEarnWithin(d TimedDrop, now, stamp time.Time, pChain map[string]struct{}) bool {
-	return c.dropBaseEarnConditions(d, pChain) && d.EndsAt.After(now) && d.StartsAt.Before(stamp)
+func (c DropsCampaign) dropCanEarnWithin(d TimedDrop, now, stamp time.Time, pChain map[string]struct{}, dropExclude []string) bool {
+	return c.dropBaseEarnConditions(d, pChain, dropExclude) && d.EndsAt.After(now) && d.StartsAt.Before(stamp)
 }
 
 // campaignLevelCanEarn checks whether the campaign is eligible, active, and matches channel ACL/game constraints.
@@ -218,15 +290,18 @@ func (c DropsCampaign) campaignLevelCanEarn(now time.Time, channel *model.Channe
 	return true
 }
 
-// CanEarn reports whether this campaign can be earned now on the given channel (or any channel if channel is nil).
-func (c DropsCampaign) CanEarn(now time.Time, channel *model.Channel) bool {
+// CanEarn reports whether this campaign can be earned now on the given channel
+// (or any channel if channel is nil). dropExclude names case-insensitive
+// keywords that make a matching, unclaimed drop (and anything gated behind it)
+// unearnable — see FirstEarnableDrop.
+func (c DropsCampaign) CanEarn(now time.Time, channel *model.Channel, dropExclude ...string) bool {
 	if !c.campaignLevelCanEarn(now, channel) {
 		return false
 	}
 
 	pChain := c.preconditionsChain()
 	for _, d := range c.Drops {
-		if c.dropBaseCanEarn(d, now, pChain) {
+		if c.dropBaseCanEarn(d, now, pChain, dropExclude) {
 			return true
 		}
 	}
@@ -236,14 +311,21 @@ func (c DropsCampaign) CanEarn(now time.Time, channel *model.Channel) bool {
 // FirstEarnableDrop returns the first drop in slice order that is currently earnable,
 // honoring precondition unlock order and channel/ACL/game constraints.
 // Returns (nil, false) if no drop is currently earnable.
-func (c DropsCampaign) FirstEarnableDrop(now time.Time, channel *model.Channel) (*TimedDrop, bool) {
+//
+// dropExclude names case-insensitive keywords matched against a drop's name
+// and benefit names. A matching, unclaimed drop is treated as permanently
+// unearnable, so it is skipped here and — since dropPreconditionsMet keys off
+// IsClaimed rather than earnability — any drop that requires it as a
+// precondition is pruned along with it, unless the excluded drop was already
+// claimed before the keyword was added.
+func (c DropsCampaign) FirstEarnableDrop(now time.Time, channel *model.Channel, dropExclude ...string) (*TimedDrop, bool) {
 	if !c.campaignLevelCanEarn(now, channel) {
 		return nil, false
 	}
 
 	pChain := c.preconditionsChain()
 	for i := range c.Drops {
-		if c.dropBaseCanEarn(c.Drops[i], now, pChain) {
+		if c.dropBaseCanEarn(c.Drops[i], now, pChain, dropExclude) {
 			return &c.Drops[i], true
 		}
 	}
@@ -251,7 +333,7 @@ func (c DropsCampaign) FirstEarnableDrop(now time.Time, channel *model.Channel) 
 }
 
 // CanEarnWithin reports whether this campaign has any drops that can be earned before stamp.
-func (c DropsCampaign) CanEarnWithin(now, stamp time.Time) bool {
+func (c DropsCampaign) CanEarnWithin(now, stamp time.Time, dropExclude ...string) bool {
 	// Linkage-only gate: see campaignLevelCanEarn's comment above.
 	if !c.Linked || !c.Valid || !c.EndsAt.After(now) || !c.StartsAt.Before(stamp) {
 		return false
@@ -259,7 +341,7 @@ func (c DropsCampaign) CanEarnWithin(now, stamp time.Time) bool {
 
 	pChain := c.preconditionsChain()
 	for _, d := range c.Drops {
-		if c.dropCanEarnWithin(d, now, stamp, pChain) {
+		if c.dropCanEarnWithin(d, now, stamp, pChain, dropExclude) {
 			return true
 		}
 	}
