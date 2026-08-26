@@ -1,0 +1,14 @@
+# Map every author identity used in this repository's history onto one person.
+#
+# Commits were made from three different git identities over time: a personal
+# address, a university address, and GitHub's noreply address. They are all the
+# same author, so collapse them into a single canonical entry.
+#
+# Format: <Canonical Name> <canonical@email> <commit@email>
+# Docs:   https://git-scm.com/docs/gitmailmap
+#
+# Affects git shortlog, log, blame and other local git tooling. It has no effect
+# on GitHub's contributor graph, which is computed server-side.
+
+Efe Özan <efe052006@gmail.com> <efeozan@marun.edu.tr>
+Efe Özan <efe052006@gmail.com> <69326795+thozoz@users.noreply.github.com>
