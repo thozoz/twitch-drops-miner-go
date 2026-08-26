@@ -9,12 +9,13 @@ import (
 
 // JSON-RPC 2.0 method name constants.
 const (
-	MethodStatus     = "daemon.Status"
-	MethodPriority   = "daemon.Priority"
-	MethodExclude    = "daemon.Exclude"
-	MethodShutdown   = "daemon.Shutdown"
-	MethodGetLogs    = "daemon.GetLogs"
-	MethodStreamLogs = "daemon.StreamLogs"
+	MethodStatus      = "daemon.Status"
+	MethodPriority    = "daemon.Priority"
+	MethodExclude     = "daemon.Exclude"
+	MethodDropExclude = "daemon.DropExclude"
+	MethodShutdown    = "daemon.Shutdown"
+	MethodGetLogs     = "daemon.GetLogs"
+	MethodStreamLogs  = "daemon.StreamLogs"
 
 	NotifyLogEntry = "log.entry"
 )
@@ -80,6 +81,29 @@ type ExcludeResult struct {
 	Exclude []string `json:"exclude"`
 }
 
+// DropExcludeAction defines the mutation or query action for excluded
+// drop-name/benefit keywords. It mirrors ExcludeAction rather than reusing it
+// so the two lists can diverge later without silently widening the other's API.
+type DropExcludeAction string
+
+const (
+	DropExcludeList   DropExcludeAction = "list"
+	DropExcludeAdd    DropExcludeAction = "add"
+	DropExcludeRemove DropExcludeAction = "remove"
+	DropExcludeSet    DropExcludeAction = "set"
+)
+
+// DropExcludeParams contains parameters for daemon.DropExclude.
+type DropExcludeParams struct {
+	Action   DropExcludeAction `json:"action"`
+	Keywords []string          `json:"keywords"`
+}
+
+// DropExcludeResult contains the effective drop-exclude keyword list after an operation.
+type DropExcludeResult struct {
+	DropExclude []string `json:"drop_exclude"`
+}
+
 // ShutdownParams contains parameters for daemon.Shutdown.
 type ShutdownParams struct {
 	TimeoutSeconds int `json:"timeout_seconds"`
@@ -112,6 +136,7 @@ type Handler interface {
 	Status(ctx context.Context) (StatusResult, error)
 	Priority(ctx context.Context, p PriorityParams) (PriorityResult, error)
 	Exclude(ctx context.Context, p ExcludeParams) (ExcludeResult, error)
+	DropExclude(ctx context.Context, p DropExcludeParams) (DropExcludeResult, error)
 	Shutdown(ctx context.Context, p ShutdownParams) (ShutdownResult, error)
 	GetLogs(ctx context.Context, p GetLogsParams) (GetLogsResult, error)
 	StreamLogs(ctx context.Context, conn *jsonrpc2.Conn, p GetLogsParams) error

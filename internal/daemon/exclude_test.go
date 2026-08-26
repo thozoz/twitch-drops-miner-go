@@ -19,7 +19,7 @@ func newExcludeTestSupervisor(t *testing.T, opts ...SupervisorOption) *Superviso
 	t.Helper()
 	return NewSupervisor(
 		func(ctx context.Context) ([]inventory.DropsCampaign, error) { return nil, nil },
-		func(ctx context.Context, c inventory.DropsCampaign) (*model.Channel, error) { return nil, nil },
+		func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) { return nil, nil },
 		nil,
 		[]string{"Rust"},
 		[]string{"Existing"},

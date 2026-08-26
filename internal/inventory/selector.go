@@ -18,7 +18,11 @@ import (
 // candidates through SplitEligible with the resolved enableBadgesEmotes
 // setting must pass the same value here too, or a badge/emote campaign the
 // operator opted into would be silently re-excluded one call later.
-func SelectCampaign(candidates []DropsCampaign, priority, exclude []string, now time.Time, enableBadgesEmotes bool) *DropsCampaign {
+//
+// dropExclude names case-insensitive drop-name/benefit keywords, forwarded to
+// CanEarnWithin — a campaign whose only reachable drops are excluded is
+// treated the same as one with nothing earnable within the window.
+func SelectCampaign(candidates []DropsCampaign, priority, exclude []string, now time.Time, enableBadgesEmotes bool, dropExclude ...string) *DropsCampaign {
 	excludeMap := make(map[string]struct{}, len(exclude))
 	for _, ex := range exclude {
 		excludeMap[ex] = struct{}{}
@@ -32,7 +36,7 @@ func SelectCampaign(candidates []DropsCampaign, priority, exclude []string, now 
 		}
 
 		// Eligibility and earnability within 1 hour
-		if !c.Eligible(enableBadgesEmotes) || !c.CanEarnWithin(now, now.Add(1*time.Hour)) {
+		if !c.Eligible(enableBadgesEmotes) || !c.CanEarnWithin(now, now.Add(1*time.Hour), dropExclude...) {
 			continue
 		}
 
@@ -43,19 +47,30 @@ func SelectCampaign(candidates []DropsCampaign, priority, exclude []string, now 
 		return nil
 	}
 
-	sort.SliceStable(filtered, func(i, j int) bool {
-		pi := priorityIndex(filtered[i].Game.Name, priority)
-		pj := priorityIndex(filtered[j].Game.Name, priority)
+	filtered = SortByPriority(filtered, priority)
+
+	res := filtered[0]
+	return &res
+}
+
+// SortByPriority stable-sorts campaigns by priority list index ascending
+// (unlisted games sort last, at math.MaxInt), with EndsAt ascending as
+// tiebreaker — the same ordering SelectCampaign uses to pick its single
+// winner. Exported so callers that need the full ranked queue, not just the
+// top pick (e.g. `tdm queue`), can reuse the identical ordering.
+func SortByPriority(campaigns []DropsCampaign, priority []string) []DropsCampaign {
+	out := append([]DropsCampaign(nil), campaigns...)
+	sort.SliceStable(out, func(i, j int) bool {
+		pi := priorityIndex(out[i].Game.Name, priority)
+		pj := priorityIndex(out[j].Game.Name, priority)
 
 		if pi != pj {
 			return pi < pj
 		}
 
-		return filtered[i].EndsAt.Before(filtered[j].EndsAt)
+		return out[i].EndsAt.Before(out[j].EndsAt)
 	})
-
-	res := filtered[0]
-	return &res
+	return out
 }
 
 func priorityIndex(gameName string, priority []string) int {

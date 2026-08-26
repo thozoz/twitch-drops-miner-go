@@ -490,4 +490,154 @@ func TestDropsCampaign_FirstEarnableDrop(t *testing.T) {
 		assert.False(t, ok)
 		assert.Nil(t, drop)
 	})
+
+	// Test 5: an excluded, unclaimed drop is unearnable, and a dependent drop
+	// gated behind it stays pruned forever, since the precondition can never
+	// become claimed.
+	t.Run("excluded drop is unearnable and prunes its dependent", func(t *testing.T) {
+		campaign := DropsCampaign{
+			ID:       "c5",
+			Name:     "Campaign 5",
+			Game:     game,
+			Linked:   true,
+			Valid:    true,
+			StartsAt: now.Add(-1 * time.Hour),
+			EndsAt:   now.Add(1 * time.Hour),
+			Drops: []TimedDrop{
+				{
+					ID:              "d1",
+					Name:            "Rare Cosmetic Pack",
+					StartsAt:        now.Add(-1 * time.Hour),
+					EndsAt:          now.Add(1 * time.Hour),
+					RequiredMinutes: 30,
+					IsClaimed:       false,
+					Benefits:        []Benefit{{ID: "b1"}},
+				},
+				{
+					ID:                  "d2",
+					Name:                "Tier 2 Drop",
+					StartsAt:            now.Add(-1 * time.Hour),
+					EndsAt:              now.Add(1 * time.Hour),
+					RequiredMinutes:     60,
+					IsClaimed:           false,
+					Benefits:            []Benefit{{ID: "b2"}},
+					PreconditionDropIDs: []string{"d1"},
+				},
+			},
+		}
+
+		// "cosmetic" matches "Rare Cosmetic Pack" case-insensitively.
+		drop, ok := campaign.FirstEarnableDrop(now, nil, "cosmetic")
+		assert.False(t, ok, "the excluded drop must not be returned")
+		assert.Nil(t, drop)
+
+		assert.False(t, campaign.CanEarn(now, nil, "cosmetic"))
+		assert.False(t, campaign.CanEarnWithin(now, now.Add(1*time.Hour), "cosmetic"))
+	})
+
+	// Test 6: exclusion is matched case-insensitively against benefit names too.
+	t.Run("exclusion matches a benefit name case-insensitively", func(t *testing.T) {
+		campaign := DropsCampaign{
+			ID:       "c6",
+			Name:     "Campaign 6",
+			Game:     game,
+			Linked:   true,
+			Valid:    true,
+			StartsAt: now.Add(-1 * time.Hour),
+			EndsAt:   now.Add(1 * time.Hour),
+			Drops: []TimedDrop{
+				{
+					ID:              "d1",
+					Name:            "30 Minute Drop",
+					StartsAt:        now.Add(-1 * time.Hour),
+					EndsAt:          now.Add(1 * time.Hour),
+					RequiredMinutes: 30,
+					IsClaimed:       false,
+					Benefits:        []Benefit{{ID: "b1", Name: "Golden Emote"}},
+				},
+			},
+		}
+
+		drop, ok := campaign.FirstEarnableDrop(now, nil, "EMOTE")
+		assert.False(t, ok)
+		assert.Nil(t, drop)
+
+		// A keyword that matches nothing leaves the drop earnable.
+		drop, ok = campaign.FirstEarnableDrop(now, nil, "nonmatching")
+		assert.True(t, ok)
+		require.NotNil(t, drop)
+		assert.Equal(t, "d1", drop.ID)
+	})
+
+	// Test 7: a drop already claimed before the keyword existed keeps
+	// unblocking its dependents — exclusion only applies to unclaimed drops.
+	t.Run("a claimed drop still unblocks dependents even if it now matches an exclude keyword", func(t *testing.T) {
+		campaign := DropsCampaign{
+			ID:       "c7",
+			Name:     "Campaign 7",
+			Game:     game,
+			Linked:   true,
+			Valid:    true,
+			StartsAt: now.Add(-1 * time.Hour),
+			EndsAt:   now.Add(1 * time.Hour),
+			Drops: []TimedDrop{
+				{
+					ID:              "d1",
+					Name:            "Rare Cosmetic Pack",
+					StartsAt:        now.Add(-1 * time.Hour),
+					EndsAt:          now.Add(1 * time.Hour),
+					RequiredMinutes: 30,
+					IsClaimed:       true,
+					Benefits:        []Benefit{{ID: "b1"}},
+				},
+				{
+					ID:                  "d2",
+					Name:                "Tier 2 Drop",
+					StartsAt:            now.Add(-1 * time.Hour),
+					EndsAt:              now.Add(1 * time.Hour),
+					RequiredMinutes:     60,
+					IsClaimed:           false,
+					Benefits:            []Benefit{{ID: "b2"}},
+					PreconditionDropIDs: []string{"d1"},
+				},
+			},
+		}
+
+		drop, ok := campaign.FirstEarnableDrop(now, nil, "cosmetic")
+		assert.True(t, ok)
+		require.NotNil(t, drop)
+		assert.Equal(t, "d2", drop.ID)
+	})
+}
+
+func TestDropsCampaign_PreconditionStatus(t *testing.T) {
+	now := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+	game := model.NewGame("100", "Normal Game", "")
+
+	campaign := DropsCampaign{
+		ID:       "c1",
+		Name:     "Campaign 1",
+		Game:     game,
+		Linked:   true,
+		Valid:    true,
+		StartsAt: now.Add(-1 * time.Hour),
+		EndsAt:   now.Add(1 * time.Hour),
+		Drops: []TimedDrop{
+			{ID: "d1", Name: "Claimed Drop", IsClaimed: true, RequiredMinutes: 30},
+			{ID: "d2", Name: "Ready Drop", RequiredMinutes: 30},
+			{ID: "d3", Name: "Blocked Drop", RequiredMinutes: 30, PreconditionDropIDs: []string{"d2"}},
+			{ID: "d4", Name: "Excluded Cosmetic", RequiredMinutes: 30},
+			{ID: "d5", Name: "Blocked By Excluded", RequiredMinutes: 30, PreconditionDropIDs: []string{"d4"}},
+			{ID: "d6", Name: "Blocked By Unknown Precondition", RequiredMinutes: 30, PreconditionDropIDs: []string{"missing"}},
+		},
+	}
+
+	dropExclude := []string{"cosmetic"}
+
+	assert.Equal(t, "Claimed", campaign.PreconditionStatus(campaign.Drops[0], dropExclude))
+	assert.Equal(t, "Ready", campaign.PreconditionStatus(campaign.Drops[1], dropExclude))
+	assert.Equal(t, "Blocked by Ready Drop", campaign.PreconditionStatus(campaign.Drops[2], dropExclude))
+	assert.Equal(t, "Excluded", campaign.PreconditionStatus(campaign.Drops[3], dropExclude))
+	assert.Equal(t, "Blocked by Excluded Cosmetic", campaign.PreconditionStatus(campaign.Drops[4], dropExclude))
+	assert.Equal(t, "Blocked by missing", campaign.PreconditionStatus(campaign.Drops[5], dropExclude))
 }

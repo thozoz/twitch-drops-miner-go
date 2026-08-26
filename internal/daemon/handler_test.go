@@ -18,7 +18,7 @@ func TestHandler_ShutdownCancelsContext(t *testing.T) {
 
 	sup := NewSupervisor(
 		func(ctx context.Context) ([]inventory.DropsCampaign, error) { return nil, nil },
-		func(ctx context.Context, c inventory.DropsCampaign) (*model.Channel, error) { return nil, nil },
+		func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) { return nil, nil },
 		nil,
 		[]string{"Game1"},
 		nil,

@@ -41,6 +41,11 @@ func (h *Handler) Exclude(ctx context.Context, p ipc.ExcludeParams) (ipc.Exclude
 	return h.sup.UpdateExclude(ctx, p)
 }
 
+// DropExclude handles daemon.DropExclude requests by delegating to the supervisor.
+func (h *Handler) DropExclude(ctx context.Context, p ipc.DropExcludeParams) (ipc.DropExcludeResult, error) {
+	return h.sup.UpdateDropExclude(ctx, p)
+}
+
 // Shutdown initiates graceful termination by canceling the daemon context.
 func (h *Handler) Shutdown(ctx context.Context, p ipc.ShutdownParams) (ipc.ShutdownResult, error) {
 	if h.cancel != nil {

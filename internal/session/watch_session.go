@@ -99,6 +99,15 @@ func WithStatePath(path string) SessionOption {
 	}
 }
 
+// WithDropExclude sets the case-insensitive drop-name/benefit keywords that
+// make a matching, unclaimed drop unearnable for the duration of the session.
+// See inventory.DropsCampaign.FirstEarnableDrop for the pruning semantics.
+func WithDropExclude(dropExclude []string) SessionOption {
+	return func(s *WatchSession) {
+		s.dropExclude = append([]string(nil), dropExclude...)
+	}
+}
+
 // ProgressCallback is called whenever drop progress minutes or active drop changes.
 type ProgressCallback func(drop *inventory.TimedDrop)
 
@@ -124,6 +133,7 @@ type WatchSession struct {
 	confirmPollInterval time.Duration
 	confirmRetries      int
 	onProgress          ProgressCallback
+	dropExclude         []string
 
 	mu             sync.Mutex
 	claimMu        sync.Mutex
@@ -198,7 +208,7 @@ func (s *WatchSession) Run(ctx context.Context, campaign inventory.DropsCampaign
 
 	var ok bool
 	s.mu.Lock()
-	s.activeDrop, ok = campaign.FirstEarnableDrop(time.Now(), &ch)
+	s.activeDrop, ok = campaign.FirstEarnableDrop(time.Now(), &ch, s.dropExclude...)
 	s.lastProgressAt = time.Now()
 	activeDropCopy := s.activeDrop
 	s.mu.Unlock()
@@ -520,7 +530,7 @@ func (s *WatchSession) claimAndAdvance(ctx context.Context, campaign *inventory.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	nextDrop, ok := campaign.FirstEarnableDrop(time.Now(), &ch)
+	nextDrop, ok := campaign.FirstEarnableDrop(time.Now(), &ch, s.dropExclude...)
 	if ok {
 		s.activeDrop = nextDrop
 		s.lastProgressAt = time.Now()

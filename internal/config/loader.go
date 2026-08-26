@@ -41,6 +41,7 @@ func Load(explicitPath string) (*Config, error) {
 		"log_file":             "",
 		"priority":             []string{},
 		"exclude":              []string{},
+		"drop_exclude":         []string{},
 		"enable_badges_emotes": false,
 	}
 	if err := k.Load(confmap.Provider(defaultMap, "."), nil); err != nil {

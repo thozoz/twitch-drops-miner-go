@@ -52,6 +52,10 @@ func (m *mockLogsHandler) Exclude(ctx context.Context, p ipc.ExcludeParams) (ipc
 	return ipc.ExcludeResult{}, nil
 }
 
+func (m *mockLogsHandler) DropExclude(ctx context.Context, p ipc.DropExcludeParams) (ipc.DropExcludeResult, error) {
+	return ipc.DropExcludeResult{}, nil
+}
+
 func (m *mockLogsHandler) Shutdown(ctx context.Context, p ipc.ShutdownParams) (ipc.ShutdownResult, error) {
 	return ipc.ShutdownResult{Status: "shutting_down"}, nil
 }

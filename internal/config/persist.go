@@ -91,3 +91,15 @@ func SaveExclude(path string, exclude []string) error {
 	}
 	return SaveKey(path, "exclude", exclude)
 }
+
+// SaveDropExclude writes the given drop-name/benefit keyword exclusion list
+// into the config file at path, preserving every other key already in the
+// file. See SaveKey for the underlying read-modify-write behavior and
+// guarantees.
+func SaveDropExclude(path string, dropExclude []string) error {
+	// Marshal an empty list as [] rather than null so the file stays readable.
+	if dropExclude == nil {
+		dropExclude = []string{}
+	}
+	return SaveKey(path, "drop_exclude", dropExclude)
+}

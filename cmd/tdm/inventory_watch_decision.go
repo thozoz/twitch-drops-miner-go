@@ -70,11 +70,12 @@ var inventoryWatchDecisionCmd = &cobra.Command{
 		}
 
 		cfg := config.FromContext(ctx)
-		var priority, exclude []string
+		var priority, exclude, dropExclude []string
 		enableBadgesEmotes := false
 		if cfg != nil {
 			priority = cfg.Priority
 			exclude = cfg.Exclude
+			dropExclude = cfg.DropExclude
 			enableBadgesEmotes = cfg.EnableBadgesEmotes
 		}
 
@@ -89,7 +90,7 @@ var inventoryWatchDecisionCmd = &cobra.Command{
 			)
 		}
 
-		selected := inventory.SelectCampaign(eligible, priority, exclude, time.Now(), enableBadgesEmotes)
+		selected := inventory.SelectCampaign(eligible, priority, exclude, time.Now(), enableBadgesEmotes, dropExclude...)
 		if selected == nil {
 			if watchDecisionJSON {
 				fmt.Println("{}")
