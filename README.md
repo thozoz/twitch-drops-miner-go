@@ -130,6 +130,8 @@ tdm auth set-token <your-auth-token>
 tdm auth set-token
 ```
 
+> If you built from source without installing, run the binary from the build directory as `./tdm` instead.
+
 <details>
 <summary><b>How to get your Twitch auth-token cookie (30 seconds)</b></summary>
 
