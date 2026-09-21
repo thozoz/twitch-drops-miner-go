@@ -262,8 +262,10 @@ func (s *Session) persistBrowserSession(ctx context.Context, captured BrowserSes
 		ObtainedAt:        now,
 		IntegrityCaptured: now,
 	}
-	if err := state.AtomicWriteJSON(s.path, newData, 0600); err != nil {
-		return fmt.Errorf("failed to persist browser credentials: %w", err)
+	if s.path != "" {
+		if err := state.AtomicWriteJSON(s.path, newData, 0600); err != nil {
+			return fmt.Errorf("failed to persist browser credentials: %w", err)
+		}
 	}
 
 	s.mu.Lock()
@@ -285,9 +287,8 @@ func (s *Session) Logout() error {
 	defer s.authMu.Unlock()
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.data = &model.AuthData{}
+	s.mu.Unlock()
 	if s.path != "" {
 		if err := os.Remove(s.path); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("failed to remove auth file: %w", err)

@@ -466,7 +466,8 @@ func (c *Client) newRestyRequest(ctx context.Context) *resty.Request {
 
 func hasIntegrityFailure(errs []GQLError) bool {
 	for _, gqlErr := range errs {
-		if strings.Contains(strings.ToLower(gqlErr.Message), "integrity") {
+		message := strings.ToLower(gqlErr.Message)
+		if strings.Contains(message, "failed integrity check") || strings.Contains(message, "integrity check failed") {
 			return true
 		}
 	}
