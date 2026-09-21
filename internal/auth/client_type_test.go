@@ -17,12 +17,6 @@ func TestAndroidUserAgents(t *testing.T) {
 	}
 }
 
-func TestPickUserAgent(t *testing.T) {
-	picked := PickUserAgent()
-	assert.NotEmpty(t, picked)
-	assert.Contains(t, AndroidUserAgents, picked)
-}
-
 func TestNewDeviceID(t *testing.T) {
 	hexRegex := regexp.MustCompile(`^[0-9a-f]{32}$`)
 	id1 := NewDeviceID()

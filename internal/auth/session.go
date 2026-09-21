@@ -86,13 +86,8 @@ func (s *Session) SessionID() string {
 func (s *Session) UserAgent() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.data != nil {
-		if s.data.AuthUserAgent != "" {
-			return s.data.AuthUserAgent
-		}
-		if s.data.AuthClientID == SmartBoxClientID {
-			return SmartBoxUserAgent
-		}
+	if s.data != nil && s.data.AuthUserAgent != "" {
+		return s.data.AuthUserAgent
 	}
 	return AndroidUserAgents[0]
 }
@@ -137,7 +132,7 @@ func (s *Session) Login(ctx context.Context, onCode func(verificationURI, userCo
 		deviceID = NewDeviceID()
 	}
 	if userAgent == "" {
-		userAgent = PickUserAgent()
+		userAgent = AndroidUserAgents[0]
 	}
 
 	accessToken, refreshToken, err := RunDeviceCodeFlow(ctx, s.httpClient, deviceID, userAgent, onCode)

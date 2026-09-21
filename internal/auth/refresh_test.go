@@ -170,21 +170,13 @@ func TestSession_IdentityMatchesTokenIssuer(t *testing.T) {
 			wantUserAgent: AndroidUserAgents[1],
 		},
 		{
-			name: "SmartBox auth file",
+			name: "custom client auth file",
 			data: &model.AuthData{
-				AuthClientID:  SmartBoxClientID,
-				AuthUserAgent: SmartBoxUserAgent,
+				AuthClientID:  "custom-client-id",
+				AuthUserAgent: "custom-ua",
 			},
-			wantClientID:  SmartBoxClientID,
-			wantUserAgent: SmartBoxUserAgent,
-		},
-		{
-			name: "SmartBox auth file missing persisted user agent",
-			data: &model.AuthData{
-				AuthClientID: SmartBoxClientID,
-			},
-			wantClientID:  SmartBoxClientID,
-			wantUserAgent: SmartBoxUserAgent,
+			wantClientID:  "custom-client-id",
+			wantUserAgent: "custom-ua",
 		},
 	}
 

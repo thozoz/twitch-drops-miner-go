@@ -4,7 +4,6 @@ import (
 	cryptorand "crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"math/rand/v2"
 )
 
 // Twitch client constants for the ANDROID_APP client type.
@@ -12,10 +11,6 @@ import (
 const (
 	AndroidClientID  = "kd1unb4b3q4t58fwlpcbzcbnm76a8fp"
 	AndroidClientURL = "https://www.twitch.tv"
-
-	SmartBoxClientID  = "ue6666qo983tsx6so1t0vnawi233wa"
-	SmartBoxClientURL = "https://android.tv.twitch.tv"
-	SmartBoxUserAgent = "Mozilla/5.0 (Linux; Android 7.1; Smart Box C1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
 )
 
 // AndroidUserAgents contains the exact Dalvik User-Agent pool for the ANDROID_APP client type.
@@ -28,11 +23,6 @@ var AndroidUserAgents = []string{
 	"Dalvik/2.1.0 (Linux; U; Android 15; SM-G970F Build/AP3A.241105.008) tv.twitch.android.app/25.3.0/2503006",
 	"Dalvik/2.1.0 (Linux; U; Android 15; SM-A566E Build/AP3A.240905.015.A2) tv.twitch.android.app/25.3.0/2503006",
 	"Dalvik/2.1.0 (Linux; U; Android 14; SM-X306B Build/UP1A.231005.007) tv.twitch.android.app/25.3.0/2503006",
-}
-
-// PickUserAgent selects one random User-Agent string from the AndroidUserAgents pool.
-func PickUserAgent() string {
-	return AndroidUserAgents[rand.IntN(len(AndroidUserAgents))]
 }
 
 // NewDeviceID generates a 32-character lowercase hex nonce using crypto/rand (16 bytes).
