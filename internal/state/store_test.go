@@ -21,13 +21,14 @@ func TestAtomicWriteJSON_RoundTrip(t *testing.T) {
 
 	now := time.Now().Truncate(time.Millisecond).UTC()
 	authIn := model.AuthData{
-		AccessToken:  model.RedactedString("oauth-access-secret"),
-		RefreshToken: model.RedactedString("oauth-refresh-secret"),
-		UserID:       987654,
-		Login:        "streamer123",
-		DeviceID:     "device-hex-123456",
-		UserAgent:    "CustomUserAgent/1.0",
-		ObtainedAt:   now,
+		AccessToken:   model.RedactedString("oauth-access-secret"),
+		RefreshToken:  model.RedactedString("oauth-refresh-secret"),
+		AuthClientID:  "device-client-id",
+		UserID:        987654,
+		Login:         "streamer123",
+		DeviceID:      "device-hex-123456",
+		AuthUserAgent: "CustomUserAgent/1.0",
+		ObtainedAt:    now,
 	}
 
 	err := AtomicWriteJSON(targetPath, authIn, 0600)
@@ -37,10 +38,11 @@ func TestAtomicWriteJSON_RoundTrip(t *testing.T) {
 	err = ReadJSON(targetPath, &authOut)
 	require.NoError(t, err)
 
+	assert.Equal(t, authIn.AuthClientID, authOut.AuthClientID)
 	assert.Equal(t, authIn.UserID, authOut.UserID)
 	assert.Equal(t, authIn.Login, authOut.Login)
 	assert.Equal(t, authIn.DeviceID, authOut.DeviceID)
-	assert.Equal(t, authIn.UserAgent, authOut.UserAgent)
+	assert.Equal(t, authIn.AuthUserAgent, authOut.AuthUserAgent)
 	assert.Equal(t, authIn.AccessToken.Reveal(), authOut.AccessToken.Reveal())
 	assert.Equal(t, authIn.RefreshToken.Reveal(), authOut.RefreshToken.Reveal())
 	assert.True(t, authIn.ObtainedAt.Equal(authOut.ObtainedAt))

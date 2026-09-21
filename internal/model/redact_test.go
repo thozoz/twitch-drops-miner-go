@@ -46,13 +46,14 @@ func TestRedactedString_SlogLogging(t *testing.T) {
 func TestAuthData_JSONSerialization(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond).UTC()
 	auth := AuthData{
-		AccessToken:  RedactedString("oauth-access-token"),
-		RefreshToken: RedactedString("oauth-refresh-token"),
-		UserID:       12345678,
-		Login:        "testuser",
-		DeviceID:     "0123456789abcdef0123456789abcdef",
-		UserAgent:    "Dalvik/2.1.0 (Linux; U; Android 16; SM-S911B) tv.twitch.android.app/25.3.0",
-		ObtainedAt:   now,
+		AccessToken:   RedactedString("oauth-access-token"),
+		RefreshToken:  RedactedString("oauth-refresh-token"),
+		AuthClientID:  "device-client-id",
+		UserID:        12345678,
+		Login:         "testuser",
+		DeviceID:      "0123456789abcdef0123456789abcdef",
+		AuthUserAgent: "Dalvik/2.1.0 (Linux; U; Android 16; SM-S911B) tv.twitch.android.app/25.3.0",
+		ObtainedAt:    now,
 	}
 
 	data, err := json.Marshal(auth)
@@ -67,10 +68,11 @@ func TestAuthData_JSONSerialization(t *testing.T) {
 	err = json.Unmarshal(data, &decoded)
 	require.NoError(t, err)
 
+	assert.Equal(t, auth.AuthClientID, decoded.AuthClientID)
 	assert.Equal(t, auth.UserID, decoded.UserID)
 	assert.Equal(t, auth.Login, decoded.Login)
 	assert.Equal(t, auth.DeviceID, decoded.DeviceID)
-	assert.Equal(t, auth.UserAgent, decoded.UserAgent)
+	assert.Equal(t, auth.AuthUserAgent, decoded.AuthUserAgent)
 	assert.Equal(t, "oauth-access-token", decoded.AccessToken.Reveal())
 	assert.Equal(t, "oauth-refresh-token", decoded.RefreshToken.Reveal())
 	assert.Equal(t, "[REDACTED]", decoded.AccessToken.String())

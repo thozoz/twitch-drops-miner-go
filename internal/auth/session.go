@@ -20,6 +20,7 @@ type Session struct {
 	httpClient *resty.Client
 	sessionID  string
 	mu         sync.Mutex
+	authMu     sync.Mutex
 }
 
 // LoadOrEmpty loads an AuthData session from disk, or returns an empty, unauthenticated Session.
@@ -55,8 +56,14 @@ func (s *Session) Authenticated() bool {
 	return s.data != nil && s.data.AccessToken.Reveal() != ""
 }
 
-// ClientID returns the client ID used by the session (satisfies gql.Identity).
+// ClientID returns the OAuth client that issued the session token.
+// Auth files from older releases have no AuthClientID and were issued by the Android client.
 func (s *Session) ClientID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data != nil && s.data.AuthClientID != "" {
+		return s.data.AuthClientID
+	}
 	return AndroidClientID
 }
 
@@ -75,14 +82,19 @@ func (s *Session) SessionID() string {
 	return s.sessionID
 }
 
-// UserAgent returns the persisted user agent (satisfies gql.Identity).
+// UserAgent returns the user agent associated with the session token's issuing client.
 func (s *Session) UserAgent() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.data != nil {
-		return s.data.UserAgent
+		if s.data.AuthUserAgent != "" {
+			return s.data.AuthUserAgent
+		}
+		if s.data.AuthClientID == SmartBoxClientID {
+			return SmartBoxUserAgent
+		}
 	}
-	return ""
+	return AndroidUserAgents[0]
 }
 
 // AccessToken returns the revealed plaintext access token (satisfies gql.Identity).
@@ -107,16 +119,19 @@ func (s *Session) Data() *model.AuthData {
 }
 
 // Login executes the OAuth Device Code Flow, validates the token, and persists the session.
+// It synchronizes with other auth operations via authMu to avoid holding s.mu across network calls.
 func (s *Session) Login(ctx context.Context, onCode func(verificationURI, userCode string)) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
 
+	s.mu.Lock()
 	deviceID := ""
 	userAgent := ""
 	if s.data != nil {
 		deviceID = s.data.DeviceID
-		userAgent = s.data.UserAgent
+		userAgent = s.data.AuthUserAgent
 	}
+	s.mu.Unlock()
 
 	if deviceID == "" {
 		deviceID = NewDeviceID()
@@ -139,25 +154,33 @@ func (s *Session) Login(ctx context.Context, onCode func(verificationURI, userCo
 		return fmt.Errorf("client ID mismatch: expected %s, got %s", AndroidClientID, respClientID)
 	}
 
-	s.data = &model.AuthData{
-		AccessToken:  model.RedactedString(accessToken),
-		RefreshToken: model.RedactedString(refreshToken),
-		UserID:       userID,
-		Login:        login,
-		DeviceID:     deviceID,
-		UserAgent:    userAgent,
-		ObtainedAt:   time.Now().UTC(),
+	newData := &model.AuthData{
+		AccessToken:   model.RedactedString(accessToken),
+		RefreshToken:  model.RedactedString(refreshToken),
+		AuthClientID:  AndroidClientID,
+		UserID:        userID,
+		Login:         login,
+		DeviceID:      deviceID,
+		AuthUserAgent: userAgent,
+		ObtainedAt:    time.Now().UTC(),
 	}
 
-	if err := state.AtomicWriteJSON(s.path, s.data, 0600); err != nil {
+	if err := state.AtomicWriteJSON(s.path, newData, 0600); err != nil {
 		return fmt.Errorf("failed to persist credentials: %w", err)
 	}
+
+	s.mu.Lock()
+	s.data = newData
+	s.mu.Unlock()
 
 	return nil
 }
 
 // Logout removes the persisted credentials file and resets the in-memory session.
 func (s *Session) Logout() error {
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
