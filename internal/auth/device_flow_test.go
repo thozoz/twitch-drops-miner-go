@@ -37,9 +37,11 @@ func TestRunDeviceCodeFlow_Success(t *testing.T) {
 	)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, AndroidClientID, r.Header.Get("Client-Id"))
+		assert.Equal(t, SmartBoxClientID, r.Header.Get("Client-Id"))
 		assert.Equal(t, "test-device-id", r.Header.Get("X-Device-Id"))
 		assert.Equal(t, "CustomUA/1.0", r.Header.Get("User-Agent"))
+		assert.Equal(t, SmartBoxClientURL, r.Header.Get("Origin"))
+		assert.Equal(t, SmartBoxClientURL, r.Header.Get("Referer"))
 
 		switch r.URL.Path {
 		case "/oauth2/device":
@@ -47,7 +49,7 @@ func TestRunDeviceCodeFlow_Success(t *testing.T) {
 			assert.Equal(t, http.MethodPost, r.Method)
 			assert.Equal(t, "application/x-www-form-urlencoded", r.Header.Get("Content-Type"))
 			require.NoError(t, r.ParseForm())
-			assert.Equal(t, AndroidClientID, r.FormValue("client_id"))
+			assert.Equal(t, SmartBoxClientID, r.FormValue("client_id"))
 			assert.Equal(t, "", r.FormValue("scopes"))
 
 			w.Header().Set("Content-Type", "application/json")
@@ -63,7 +65,7 @@ func TestRunDeviceCodeFlow_Success(t *testing.T) {
 
 			assert.Equal(t, http.MethodPost, r.Method)
 			require.NoError(t, r.ParseForm())
-			assert.Equal(t, AndroidClientID, r.FormValue("client_id"))
+			assert.Equal(t, SmartBoxClientID, r.FormValue("client_id"))
 			assert.Equal(t, "urn:ietf:params:oauth:grant-type:device_code", r.FormValue("grant_type"))
 			assert.Equal(t, "abcdefghijklmnopqrstuvwxyz1234567890ABCD", r.FormValue("device_code"))
 

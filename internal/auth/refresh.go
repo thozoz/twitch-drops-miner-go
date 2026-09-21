@@ -47,13 +47,18 @@ func (s *Session) RefreshOnUnauthorized(ctx context.Context) error {
 		baseURL = client.HostURL
 	}
 	endpoint := strings.TrimRight(baseURL, "/") + "/oauth2/token"
+	authClientID := s.data.AuthClientID
+	if authClientID == "" {
+		// Auth files written before auth_client_id was introduced used the Android client.
+		authClientID = AndroidClientID
+	}
 
 	req := client.R().
 		SetContext(ctx).
 		SetHeader("Accept", "application/json").
-		SetHeader("Client-Id", AndroidClientID).
+		SetHeader("Client-Id", authClientID).
 		SetFormData(map[string]string{
-			"client_id":     AndroidClientID,
+			"client_id":     authClientID,
 			"grant_type":    "refresh_token",
 			"refresh_token": s.data.RefreshToken.Reveal(),
 		})

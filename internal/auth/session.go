@@ -55,9 +55,9 @@ func (s *Session) Authenticated() bool {
 	return s.data != nil && s.data.AccessToken.Reveal() != ""
 }
 
-// ClientID returns the client ID used by the session (satisfies gql.Identity).
+// ClientID returns the browser client ID used for GQL and playback requests.
 func (s *Session) ClientID() string {
-	return AndroidClientID
+	return WebClientID
 }
 
 // DeviceID returns the persisted device ID (satisfies gql.Identity).
@@ -75,14 +75,9 @@ func (s *Session) SessionID() string {
 	return s.sessionID
 }
 
-// UserAgent returns the persisted user agent (satisfies gql.Identity).
+// UserAgent returns the browser user agent used for GQL and playback requests.
 func (s *Session) UserAgent() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.data != nil {
-		return s.data.UserAgent
-	}
-	return ""
+	return WebUserAgent
 }
 
 // AccessToken returns the revealed plaintext access token (satisfies gql.Identity).
@@ -112,18 +107,14 @@ func (s *Session) Login(ctx context.Context, onCode func(verificationURI, userCo
 	defer s.mu.Unlock()
 
 	deviceID := ""
-	userAgent := ""
 	if s.data != nil {
 		deviceID = s.data.DeviceID
-		userAgent = s.data.UserAgent
 	}
 
 	if deviceID == "" {
 		deviceID = NewDeviceID()
 	}
-	if userAgent == "" {
-		userAgent = PickUserAgent()
-	}
+	userAgent := SmartBoxUserAgent
 
 	accessToken, refreshToken, err := RunDeviceCodeFlow(ctx, s.httpClient, deviceID, userAgent, onCode)
 	if err != nil {
@@ -135,13 +126,14 @@ func (s *Session) Login(ctx context.Context, onCode func(verificationURI, userCo
 		return fmt.Errorf("token validation failed: %w", err)
 	}
 
-	if respClientID != AndroidClientID {
-		return fmt.Errorf("client ID mismatch: expected %s, got %s", AndroidClientID, respClientID)
+	if respClientID != SmartBoxClientID {
+		return fmt.Errorf("client ID mismatch: expected %s, got %s", SmartBoxClientID, respClientID)
 	}
 
 	s.data = &model.AuthData{
 		AccessToken:  model.RedactedString(accessToken),
 		RefreshToken: model.RedactedString(refreshToken),
+		AuthClientID: SmartBoxClientID,
 		UserID:       userID,
 		Login:        login,
 		DeviceID:     deviceID,

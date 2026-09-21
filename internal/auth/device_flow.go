@@ -67,7 +67,7 @@ func defaultSleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// RunDeviceCodeFlow executes the OAuth 2.0 Device Authorization Grant flow for the ANDROID_APP client.
+// RunDeviceCodeFlow executes the OAuth 2.0 Device Authorization Grant flow for the SmartBox client.
 // It requests a device code, calls onCode with the verification URI and user code, sleeps for the
 // server-specified interval BEFORE the first poll (per D-01/twitch.py:171), and polls until authorization
 // succeeds or context is cancelled. If the code expires, it requests a fresh code and continues.
@@ -104,11 +104,11 @@ func RunDeviceCodeFlow(
 		"Accept-Encoding": "gzip",
 		"Accept-Language": "en-US",
 		"Cache-Control":   "no-cache",
-		"Client-Id":       AndroidClientID,
+		"Client-Id":       SmartBoxClientID,
 		"Host":            "id.twitch.tv",
-		"Origin":          AndroidClientURL,
+		"Origin":          SmartBoxClientURL,
 		"Pragma":          "no-cache",
-		"Referer":         AndroidClientURL,
+		"Referer":         SmartBoxClientURL,
 		"User-Agent":      userAgent,
 		"X-Device-Id":     deviceID,
 	}
@@ -123,7 +123,7 @@ func RunDeviceCodeFlow(
 			SetContext(ctx).
 			SetHeaders(headers).
 			SetFormData(map[string]string{
-				"client_id": AndroidClientID,
+				"client_id": SmartBoxClientID,
 				"scopes":    "",
 			}).
 			Post(deviceURL)
@@ -150,7 +150,7 @@ func RunDeviceCodeFlow(
 		}
 
 		tokenFormData := map[string]string{
-			"client_id":   AndroidClientID,
+			"client_id":   SmartBoxClientID,
 			"device_code": devResp.DeviceCode,
 			"grant_type":  "urn:ietf:params:oauth:grant-type:device_code",
 		}

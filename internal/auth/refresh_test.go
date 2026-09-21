@@ -26,6 +26,9 @@ func TestRefreshOnUnauthorized_ConcurrentSingleFlight(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/oauth2/token" {
 			atomic.AddInt64(&requestCount, 1)
+			require.NoError(t, r.ParseForm())
+			assert.Equal(t, SmartBoxClientID, r.Header.Get("Client-Id"))
+			assert.Equal(t, SmartBoxClientID, r.FormValue("client_id"))
 			time.Sleep(50 * time.Millisecond) // Simulate network delay
 
 			w.Header().Set("Content-Type", "application/json")
@@ -47,6 +50,7 @@ func TestRefreshOnUnauthorized_ConcurrentSingleFlight(t *testing.T) {
 	initialData := &model.AuthData{
 		AccessToken:  "initial_access_token",
 		RefreshToken: "initial_refresh_token",
+		AuthClientID: SmartBoxClientID,
 		UserID:       12345,
 		Login:        "testuser",
 		DeviceID:     "1234567890abcdef1234567890abcdef",
@@ -88,6 +92,9 @@ func TestRefreshOnUnauthorized_ConcurrentSingleFlight(t *testing.T) {
 
 func TestRefreshOnUnauthorized_FailureLeavesDiskUntouched(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, r.ParseForm())
+		assert.Equal(t, AndroidClientID, r.Header.Get("Client-Id"))
+		assert.Equal(t, AndroidClientID, r.FormValue("client_id"))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"status":400,"message":"invalid_client"}`))
@@ -134,7 +141,8 @@ func TestSession_IdentityMethods(t *testing.T) {
 	session, err := LoadOrEmpty("/non/existent/path/auth.json", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, AndroidClientID, session.ClientID())
+	assert.Equal(t, WebClientID, session.ClientID())
+	assert.Equal(t, WebUserAgent, session.UserAgent())
 
 	sessionID1 := session.SessionID()
 	sessionID2 := session.SessionID()

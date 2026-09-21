@@ -23,6 +23,7 @@ func TestAtomicWriteJSON_RoundTrip(t *testing.T) {
 	authIn := model.AuthData{
 		AccessToken:  model.RedactedString("oauth-access-secret"),
 		RefreshToken: model.RedactedString("oauth-refresh-secret"),
+		AuthClientID: "device-client-id",
 		UserID:       987654,
 		Login:        "streamer123",
 		DeviceID:     "device-hex-123456",
@@ -38,6 +39,7 @@ func TestAtomicWriteJSON_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, authIn.UserID, authOut.UserID)
+	assert.Equal(t, authIn.AuthClientID, authOut.AuthClientID)
 	assert.Equal(t, authIn.Login, authOut.Login)
 	assert.Equal(t, authIn.DeviceID, authOut.DeviceID)
 	assert.Equal(t, authIn.UserAgent, authOut.UserAgent)

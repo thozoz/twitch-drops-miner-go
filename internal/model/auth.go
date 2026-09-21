@@ -8,6 +8,7 @@ import (
 type AuthData struct {
 	AccessToken  RedactedString `json:"access_token"`
 	RefreshToken RedactedString `json:"refresh_token"`
+	AuthClientID string         `json:"auth_client_id,omitempty"`
 	UserID       int            `json:"user_id"`
 	Login        string         `json:"login"`
 	DeviceID     string         `json:"device_id"`

@@ -48,6 +48,7 @@ func TestAuthData_JSONSerialization(t *testing.T) {
 	auth := AuthData{
 		AccessToken:  RedactedString("oauth-access-token"),
 		RefreshToken: RedactedString("oauth-refresh-token"),
+		AuthClientID: "device-client-id",
 		UserID:       12345678,
 		Login:        "testuser",
 		DeviceID:     "0123456789abcdef0123456789abcdef",
@@ -68,6 +69,7 @@ func TestAuthData_JSONSerialization(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, auth.UserID, decoded.UserID)
+	assert.Equal(t, auth.AuthClientID, decoded.AuthClientID)
 	assert.Equal(t, auth.Login, decoded.Login)
 	assert.Equal(t, auth.DeviceID, decoded.DeviceID)
 	assert.Equal(t, auth.UserAgent, decoded.UserAgent)
