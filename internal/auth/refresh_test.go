@@ -120,6 +120,7 @@ func TestRefreshOnUnauthorized_LegacyFailureLeavesDiskUntouched(t *testing.T) {
 		require.NoError(t, r.ParseForm())
 		assert.Equal(t, AndroidClientID, r.Header.Get("Client-Id"))
 		assert.Equal(t, AndroidClientID, r.FormValue("client_id"))
+		assert.Equal(t, "Dalvik/2.1.0", r.Header.Get("User-Agent"))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"status":400,"message":"invalid_client"}`))
@@ -196,6 +197,14 @@ func TestSession_IdentityMatchesTokenIssuer(t *testing.T) {
 			data: &model.AuthData{
 				AuthClientID:  SmartBoxClientID,
 				AuthUserAgent: SmartBoxUserAgent,
+			},
+			wantClientID:  SmartBoxClientID,
+			wantUserAgent: SmartBoxUserAgent,
+		},
+		{
+			name: "SmartBox auth file missing persisted user agent",
+			data: &model.AuthData{
+				AuthClientID: SmartBoxClientID,
 			},
 			wantClientID:  SmartBoxClientID,
 			wantUserAgent: SmartBoxUserAgent,
