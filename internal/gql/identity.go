@@ -23,3 +23,9 @@ type Identity interface {
 type TokenRefresher interface {
 	RefreshOnUnauthorized(ctx context.Context) error
 }
+
+// IntegrityProvider supplies and renews a browser-issued Client-Integrity token.
+type IntegrityProvider interface {
+	IntegrityToken() string
+	RefreshIntegrity(ctx context.Context) error
+}

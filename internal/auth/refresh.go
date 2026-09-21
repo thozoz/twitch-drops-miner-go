@@ -29,14 +29,29 @@ func (s *Session) RefreshOnUnauthorized(ctx context.Context) error {
 	defer s.authMu.Unlock()
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	if s.data == nil {
+		s.mu.Unlock()
+		return fmt.Errorf("no stored credentials: %w", ErrReauthRequired)
+	}
+	data := *s.data
+	s.mu.Unlock()
 
-	if s.data == nil || s.data.RefreshToken.Reveal() == "" {
+	if data.RefreshToken.Reveal() == "" && data.AuthClientID != "" && data.AuthClientID != AndroidClientID {
+		captured, err := captureBrowserSession(ctx, s.browserProfileDir(), nil)
+		if err != nil {
+			return fmt.Errorf("browser session renewal failed: %v: %w", err, ErrReauthRequired)
+		}
+		if err := s.persistBrowserSession(ctx, captured); err != nil {
+			return fmt.Errorf("browser session renewal failed: %w", err)
+		}
+		return nil
+	}
+	if data.RefreshToken.Reveal() == "" {
 		return fmt.Errorf("no refresh token available: %w", ErrReauthRequired)
 	}
 
 	// Redundant call check: if another goroutine recently completed refresh, return success immediately.
-	if time.Since(s.data.ObtainedAt) < 5*time.Second {
+	if time.Since(data.ObtainedAt) < 5*time.Second {
 		return nil
 	}
 
@@ -51,7 +66,7 @@ func (s *Session) RefreshOnUnauthorized(ctx context.Context) error {
 	}
 	endpoint := strings.TrimRight(baseURL, "/") + "/oauth2/token"
 
-	authClientID := s.data.AuthClientID
+	authClientID := data.AuthClientID
 	if authClientID == "" {
 		// Auth files written before auth_client_id was introduced used the Android client.
 		authClientID = AndroidClientID
@@ -64,14 +79,14 @@ func (s *Session) RefreshOnUnauthorized(ctx context.Context) error {
 		SetFormData(map[string]string{
 			"client_id":     authClientID,
 			"grant_type":    "refresh_token",
-			"refresh_token": s.data.RefreshToken.Reveal(),
+			"refresh_token": data.RefreshToken.Reveal(),
 		})
 
-	if s.data.AuthUserAgent != "" {
-		req.SetHeader("User-Agent", s.data.AuthUserAgent)
+	if data.AuthUserAgent != "" {
+		req.SetHeader("User-Agent", data.AuthUserAgent)
 	}
-	if s.data.DeviceID != "" {
-		req.SetHeader("X-Device-Id", s.data.DeviceID)
+	if data.DeviceID != "" {
+		req.SetHeader("X-Device-Id", data.DeviceID)
 	}
 
 	resp, err := req.Post(endpoint)
@@ -92,17 +107,20 @@ func (s *Session) RefreshOnUnauthorized(ctx context.Context) error {
 		return fmt.Errorf("refresh response contained empty access_token: %w", ErrReauthRequired)
 	}
 
-	s.data.AccessToken = model.RedactedString(refreshResult.AccessToken)
+	data.AccessToken = model.RedactedString(refreshResult.AccessToken)
 	if refreshResult.RefreshToken != "" {
-		s.data.RefreshToken = model.RedactedString(refreshResult.RefreshToken)
+		data.RefreshToken = model.RedactedString(refreshResult.RefreshToken)
 	}
-	s.data.ObtainedAt = time.Now().UTC()
+	data.ObtainedAt = time.Now().UTC()
 
 	if s.path != "" {
-		if err := state.AtomicWriteJSON(s.path, s.data, 0600); err != nil {
+		if err := state.AtomicWriteJSON(s.path, &data, 0600); err != nil {
 			return fmt.Errorf("failed to persist refreshed credentials: %w", err)
 		}
 	}
+	s.mu.Lock()
+	s.data = &data
+	s.mu.Unlock()
 
 	return nil
 }

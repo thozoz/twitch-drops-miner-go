@@ -25,11 +25,11 @@ To keep channel states up-to-date and detect drop completions instantly, a WebSo
 ### Features:
 
 - **Stream-less drop mining:** Zero video or audio data downloaded, saving network bandwidth and CPU resources.
-- **Headless background daemon:** Runs as a detached background process (`tdm start` / `tdm stop`) with no GUI, display server, or browser dependencies.
+- **Headless background daemon:** Mining runs detached without downloading a stream. A normal Chromium window is used only for Twitch login and integrity renewal.
 - **Dual progress engine:** Subscribes to real-time Twitch PubSub WebSocket events for immediate drop progression and auto-claiming, backed by periodic GQL reconciliation.
 - **Game priority and exclusion lists:** Configure which games to mine and in what order. Modify priorities dynamically while the daemon is actively running.
 - **Local IPC control plane:** Fast JSON-RPC 2.0 interface over a secure Unix domain socket (`0600` permissions on Linux/macOS) or Named Pipe (Windows).
-- **Headless OAuth login:** Authenticate easily from remote SSH sessions via Twitch OAuth Device Code Flow (`https://www.twitch.tv/activate`).
+- **Browser-backed Twitch login:** Signs in through Twitch's own site and captures the Web GQL identity and integrity proof from the same Chromium session.
 - **Atomic state persistence:** Saves runtime progress atomically to `state.json` to safely resume sessions across restarts.
 - **Double-start prevention:** Rejects duplicate daemon instances to prevent concurrent beacon emissions on the same account.
 - **Single static binary:** Pure Go with `CGO_ENABLED=0` (<15 MB binary size) with cross-platform support for Linux (`amd64`, `arm64`), macOS, and Windows.
@@ -126,7 +126,9 @@ tdm auth login
 
 > If you built from source without installing, run the binary from the build directory as `./tdm` instead.
 
-Follow the on-screen link (`https://www.twitch.tv/activate?device-code=...`) to authorize `tdm` with your Twitch account.
+TDM opens a normal Chrome, Chromium, or Edge window with an isolated profile under its state directory. Sign in to Twitch in that window. TDM continues automatically after Twitch sends an authenticated GQL request containing a valid integrity proof. The profile is reused when Twitch rotates the OAuth or integrity token; `tdm auth logout` removes both `auth.json` and this profile.
+
+Set `TDM_BROWSER_PATH` to the browser executable when Chromium cannot be found automatically. The browser must run with a visible display: Twitch rejects integrity proofs produced by headless HTTP/browser sessions.
 
 #### 3. Start mining:
 
@@ -162,7 +164,7 @@ mkdir -p data config
 docker run --rm -it -v "$(pwd)/data:/root/.local/state/tdm" -v "$(pwd)/config:/root/.config/tdm" ghcr.io/thozoz/tdm:latest tdm auth login
 ```
 
-This step is interactive (`-it`) and must complete before starting the daemon — a fresh `docker compose up -d` with no credentials yet will crash-loop under `restart: unless-stopped`.
+Browser-backed authentication requires Chromium and a visible display. The current minimal container image does not include them, so perform login and integrity renewal on a host installation for now. A fresh `docker compose up -d` with no credentials will crash-loop under `restart: unless-stopped`.
 
 #### 3. Start the daemon in the background:
 
@@ -294,7 +296,7 @@ Matching is case-sensitive on the exact Twitch category name, the same compariso
 
 | Command | Description |
 |---|---|
-| `tdm auth login` | Initiates Device Code Flow authorization and saves credentials to `auth.json`. |
+| `tdm auth login` | Opens Chromium, signs in through Twitch, and saves the captured Web GQL session to `auth.json`. |
 | `tdm auth status` | Validates active OAuth token and prints current account info. |
 | `tdm auth logout` | Removes saved credentials from local storage. |
 
@@ -352,6 +354,7 @@ Environment variables take precedence over config files:
 - `TDM_LOG_LEVEL`: `debug`, `info`, `warn`, `error`.
 - `TDM_LOG_FORMAT`: `text` or `json`.
 - `TDM_LOG_FILE`: Path to rotating log file.
+- `TDM_BROWSER_PATH`: Optional path to Chrome, Chromium, or Edge for browser-backed authentication.
 
 `TDM_CONFIG` selects *which* file to read, rather than overriding a value in it. The config file is resolved in this order:
 

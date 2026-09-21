@@ -18,18 +18,29 @@ import (
 )
 
 type stubIdentity struct {
-	clientID    string
-	deviceID    string
-	sessionID   string
-	userAgent   string
-	accessToken string
+	clientID           string
+	deviceID           string
+	sessionID          string
+	userAgent          string
+	accessToken        string
+	integrityToken     string
+	integrityCalls     int
+	onIntegrityRefresh func()
 }
 
-func (s *stubIdentity) ClientID() string    { return s.clientID }
-func (s *stubIdentity) DeviceID() string    { return s.deviceID }
-func (s *stubIdentity) SessionID() string   { return s.sessionID }
-func (s *stubIdentity) UserAgent() string   { return s.userAgent }
-func (s *stubIdentity) AccessToken() string { return s.accessToken }
+func (s *stubIdentity) ClientID() string       { return s.clientID }
+func (s *stubIdentity) DeviceID() string       { return s.deviceID }
+func (s *stubIdentity) SessionID() string      { return s.sessionID }
+func (s *stubIdentity) UserAgent() string      { return s.userAgent }
+func (s *stubIdentity) AccessToken() string    { return s.accessToken }
+func (s *stubIdentity) IntegrityToken() string { return s.integrityToken }
+func (s *stubIdentity) RefreshIntegrity(context.Context) error {
+	s.integrityCalls++
+	if s.onIntegrityRefresh != nil {
+		s.onIntegrityRefresh()
+	}
+	return nil
+}
 
 type stubRefresher struct {
 	mu            sync.Mutex
@@ -198,11 +209,12 @@ func TestClient_Do_HeaderInjection(t *testing.T) {
 	require.NoError(t, err)
 
 	ident := &stubIdentity{
-		clientID:    "test-client-id",
-		deviceID:    "test-device-id-1234567890abcdef",
-		sessionID:   "test-session-id",
-		userAgent:   "TestAgent/1.0",
-		accessToken: "test-access-token-xyz",
+		clientID:       "test-client-id",
+		deviceID:       "test-device-id-1234567890abcdef",
+		sessionID:      "test-session-id",
+		userAgent:      "TestAgent/1.0",
+		accessToken:    "test-access-token-xyz",
+		integrityToken: "test-integrity-token",
 	}
 
 	var capturedHeaders http.Header
@@ -226,10 +238,38 @@ func TestClient_Do_HeaderInjection(t *testing.T) {
 	assert.Equal(t, "test-session-id", capturedHeaders.Get("Client-Session-Id"))
 	assert.Equal(t, "TestAgent/1.0", capturedHeaders.Get("User-Agent"))
 	assert.Equal(t, "OAuth test-access-token-xyz", capturedHeaders.Get("Authorization"))
+	assert.Equal(t, "test-integrity-token", capturedHeaders.Get("Client-Integrity"))
 	assert.Equal(t, "*/*", capturedHeaders.Get("Accept"))
 	assert.Equal(t, "gzip", capturedHeaders.Get("Accept-Encoding"))
 	assert.Equal(t, "https://www.twitch.tv", capturedHeaders.Get("Origin"))
 	assert.Equal(t, "https://www.twitch.tv", capturedHeaders.Get("Referer"))
+}
+
+func TestClient_Do_RefreshesBrowserIntegrityOnce(t *testing.T) {
+	reg, _, err := LoadRegistry("")
+	require.NoError(t, err)
+
+	var requestCount int32
+	ident := &stubIdentity{integrityToken: "stale-integrity"}
+	ident.onIntegrityRefresh = func() { ident.integrityToken = "fresh-integrity" }
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count := atomic.AddInt32(&requestCount, 1)
+		w.Header().Set("Content-Type", "application/json")
+		if count == 1 {
+			assert.Equal(t, "stale-integrity", r.Header.Get("Client-Integrity"))
+			_, _ = w.Write([]byte(`{"errors":[{"message":"failed integrity check"}],"data":{"currentUser":{"dropCampaigns":null}}}`))
+			return
+		}
+		assert.Equal(t, "fresh-integrity", r.Header.Get("Client-Integrity"))
+		_, _ = w.Write([]byte(`{"data":{"currentUser":{"dropCampaigns":[]}}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(reg, ident, nil, resty.New().SetHostURL(server.URL))
+	_, err = client.Do(context.Background(), "ViewerDropsDashboard", nil)
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), requestCount)
+	assert.Equal(t, 1, ident.integrityCalls)
 }
 
 func TestClient_Do_SingleRetryPersistedQueryNotFound(t *testing.T) {
@@ -411,4 +451,35 @@ func TestClient_DoBatch_Chunking(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, i, item.Index)
 	}
+}
+
+func TestClient_DoBatch_RefreshesBrowserIntegrityOnce(t *testing.T) {
+	reg, _, err := LoadRegistry("")
+	require.NoError(t, err)
+
+	var requestCount int32
+	ident := &stubIdentity{integrityToken: "stale-integrity"}
+	ident.onIntegrityRefresh = func() { ident.integrityToken = "fresh-integrity" }
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count := atomic.AddInt32(&requestCount, 1)
+		w.Header().Set("Content-Type", "application/json")
+		if count == 1 {
+			assert.Equal(t, "stale-integrity", r.Header.Get("Client-Integrity"))
+			_ = json.NewEncoder(w).Encode([]ResponseEnvelope{{
+				Errors: []GQLError{{Message: "failed integrity check"}},
+			}})
+			return
+		}
+		assert.Equal(t, "fresh-integrity", r.Header.Get("Client-Integrity"))
+		_ = json.NewEncoder(w).Encode([]ResponseEnvelope{{Data: json.RawMessage(`{"ok":true}`)}})
+	}))
+	defer server.Close()
+
+	client := NewClient(reg, ident, nil, resty.New().SetHostURL(server.URL))
+	results, err := client.DoBatch(context.Background(), []BatchOp{{Name: "ViewerDropsDashboard"}})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.JSONEq(t, `{"ok":true}`, string(results[0]))
+	assert.Equal(t, int32(2), requestCount)
+	assert.Equal(t, 1, ident.integrityCalls)
 }

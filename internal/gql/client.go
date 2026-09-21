@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -97,6 +98,7 @@ func (c *Client) Do(ctx context.Context, operationName string, vars map[string]a
 	backoff := NewExponentialBackoff(WithBackoffMaximum(300))
 	singleRetry := true
 	unauthorizedRefreshed := false
+	integrityRefreshed := false
 
 	for {
 		if err := c.limiter.Acquire(ctx); err != nil {
@@ -151,6 +153,17 @@ func (c *Client) Do(ctx context.Context, operationName string, vars map[string]a
 		}
 
 		if len(env.Errors) > 0 {
+			if !integrityRefreshed && hasIntegrityFailure(env.Errors) {
+				provider, ok := c.identity.(IntegrityProvider)
+				if !ok {
+					return nil, fmt.Errorf("graphql integrity check failed and no browser integrity provider is available")
+				}
+				integrityRefreshed = true
+				if err := provider.RefreshIntegrity(ctx); err != nil {
+					return nil, fmt.Errorf("graphql integrity check failed and browser refresh failed: %w", err)
+				}
+				continue
+			}
 			forceRetry := false
 			for _, gqlErr := range env.Errors {
 				msg := gqlErr.Message
@@ -263,6 +276,7 @@ func (c *Client) doBatchChunk(ctx context.Context, chunk []RequestPayload) ([]js
 	backoff := NewExponentialBackoff(WithBackoffMaximum(300))
 	singleRetry := true
 	unauthorizedRefreshed := false
+	integrityRefreshed := false
 
 	for {
 		if err := c.limiter.Acquire(ctx); err != nil {
@@ -321,8 +335,13 @@ func (c *Client) doBatchChunk(ctx context.Context, chunk []RequestPayload) ([]js
 		}
 
 		forceRetry := false
+		integrityFailure := false
 		for _, env := range envs {
 			if len(env.Errors) > 0 {
+				if hasIntegrityFailure(env.Errors) {
+					integrityFailure = true
+					break
+				}
 				for _, gqlErr := range env.Errors {
 					msg := gqlErr.Message
 					if singleRetry && (msg == "PersistedQueryNotFound" || msg == "service error") {
@@ -363,6 +382,17 @@ func (c *Client) doBatchChunk(ctx context.Context, chunk []RequestPayload) ([]js
 			if forceRetry {
 				break
 			}
+		}
+		if integrityFailure && !integrityRefreshed {
+			provider, ok := c.identity.(IntegrityProvider)
+			if !ok {
+				return nil, fmt.Errorf("graphql integrity check failed and no browser integrity provider is available")
+			}
+			integrityRefreshed = true
+			if err := provider.RefreshIntegrity(ctx); err != nil {
+				return nil, fmt.Errorf("graphql integrity check failed and browser refresh failed: %w", err)
+			}
+			continue
 		}
 
 		if forceRetry {
@@ -422,11 +452,25 @@ func (c *Client) newRestyRequest(ctx context.Context) *resty.Request {
 		if token := c.identity.AccessToken(); token != "" {
 			req.SetHeader("Authorization", "OAuth "+token)
 		}
+		if provider, ok := c.identity.(IntegrityProvider); ok {
+			if token := provider.IntegrityToken(); token != "" {
+				req.SetHeader("Client-Integrity", token)
+			}
+		}
 	} else if c.registry != nil && c.registry.ClientID() != "" {
 		req.SetHeader("Client-Id", c.registry.ClientID())
 	}
 
 	return req
+}
+
+func hasIntegrityFailure(errs []GQLError) bool {
+	for _, gqlErr := range errs {
+		if strings.Contains(strings.ToLower(gqlErr.Message), "integrity") {
+			return true
+		}
+	}
+	return false
 }
 
 func mergeVars(base, overrides map[string]any) map[string]any {

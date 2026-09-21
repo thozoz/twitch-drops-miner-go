@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/thozoz/twitch-drops-miner-go/internal/auth"
@@ -17,7 +19,7 @@ var authCmd = &cobra.Command{
 
 var authLoginCmd = &cobra.Command{
 	Use:   "login",
-	Short: "Authenticate with Twitch using OAuth Device Code Flow",
+	Short: "Authenticate with Twitch in a Chromium window",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		logger := logging.FromContext(ctx)
@@ -35,17 +37,17 @@ var authLoginCmd = &cobra.Command{
 			return &CommandError{Code: ExitError, Err: err}
 		}
 
-		onCode := func(verificationURI, userCode string) {
-			fmt.Printf("Go to %s and enter code: %s\n", verificationURI, userCode)
-		}
-
-		if err := session.Login(ctx, onCode); err != nil {
+		loginCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+		if err := session.LoginWithBrowser(loginCtx, func() {
+			cmd.Println("Chromium opened. Sign in to Twitch in that window; TDM will continue automatically.")
+		}); err != nil {
 			logger.Error("login failed", "error", err)
-			return &CommandError{Code: ExitError, Err: err}
+			return &CommandError{Code: ExitAuthRequired, Err: err}
 		}
 
 		data := session.Data()
-		fmt.Printf("Logged in as %s (user id %d)\n", data.Login, data.UserID)
+		cmd.Printf("Logged in as %s (user id %d)\n", data.Login, data.UserID)
 		return nil
 	},
 }

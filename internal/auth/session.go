@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -79,6 +80,11 @@ func (s *Session) DeviceID() string {
 
 // SessionID returns the ephemeral session ID generated once per process (satisfies gql.Identity).
 func (s *Session) SessionID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data != nil && s.data.ClientSessionID != "" {
+		return s.data.ClientSessionID
+	}
 	return s.sessionID
 }
 
@@ -98,6 +104,16 @@ func (s *Session) AccessToken() string {
 	defer s.mu.Unlock()
 	if s.data != nil {
 		return s.data.AccessToken.Reveal()
+	}
+	return ""
+}
+
+// IntegrityToken returns the browser-issued Client-Integrity token, if one is stored.
+func (s *Session) IntegrityToken() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data != nil {
+		return s.data.ClientIntegrity.Reveal()
 	}
 	return ""
 }
@@ -171,6 +187,98 @@ func (s *Session) Login(ctx context.Context, onCode func(verificationURI, userCo
 	return nil
 }
 
+// LoginWithBrowser opens a normal Chromium window and persists the complete
+// authenticated Web GQL identity captured from Twitch's own request.
+func (s *Session) LoginWithBrowser(ctx context.Context, ready func()) error {
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
+
+	captured, err := captureBrowserSession(ctx, s.browserProfileDir(), ready)
+	if err != nil {
+		return err
+	}
+	return s.persistBrowserSession(ctx, captured)
+}
+
+// RefreshIntegrity reopens the persistent Chromium profile and captures a fresh
+// browser-authenticated GQL identity. It also accepts an OAuth token rotation.
+func (s *Session) RefreshIntegrity(ctx context.Context) error {
+	s.mu.Lock()
+	observedToken := ""
+	if s.data != nil {
+		observedToken = s.data.ClientIntegrity.Reveal()
+	}
+	s.mu.Unlock()
+
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
+
+	s.mu.Lock()
+	isWebSession := s.data != nil && s.data.AuthClientID != "" && s.data.AuthClientID != AndroidClientID
+	currentToken := ""
+	if s.data != nil {
+		currentToken = s.data.ClientIntegrity.Reveal()
+	}
+	s.mu.Unlock()
+	if !isWebSession {
+		return errBrowserSessionRequired
+	}
+	// Another failed request may already have renewed the shared session while
+	// this caller waited for authMu (notably concurrent GQL batch chunks).
+	if currentToken != observedToken {
+		return nil
+	}
+
+	captured, err := captureBrowserSession(ctx, s.browserProfileDir(), nil)
+	if err != nil {
+		return fmt.Errorf("refresh browser integrity session: %w", err)
+	}
+	return s.persistBrowserSession(ctx, captured)
+}
+
+func (s *Session) persistBrowserSession(ctx context.Context, captured BrowserSession) error {
+	if captured.AccessToken == "" || captured.ClientID == "" || captured.ClientIntegrity == "" || captured.DeviceID == "" || captured.UserAgent == "" {
+		return errors.New("captured browser session is incomplete")
+	}
+
+	userID, login, tokenClientID, err := Validate(ctx, s.httpClient, captured.AccessToken)
+	if err != nil {
+		return fmt.Errorf("browser token validation failed: %w", err)
+	}
+	if tokenClientID != "" && tokenClientID != captured.ClientID {
+		return fmt.Errorf("browser client ID mismatch: request used %s, token belongs to %s", captured.ClientID, tokenClientID)
+	}
+
+	now := time.Now().UTC()
+	newData := &model.AuthData{
+		AccessToken:       model.RedactedString(captured.AccessToken),
+		ClientIntegrity:   model.RedactedString(captured.ClientIntegrity),
+		AuthClientID:      captured.ClientID,
+		UserID:            userID,
+		Login:             login,
+		DeviceID:          captured.DeviceID,
+		ClientSessionID:   captured.ClientSessionID,
+		AuthUserAgent:     captured.UserAgent,
+		ObtainedAt:        now,
+		IntegrityCaptured: now,
+	}
+	if err := state.AtomicWriteJSON(s.path, newData, 0600); err != nil {
+		return fmt.Errorf("failed to persist browser credentials: %w", err)
+	}
+
+	s.mu.Lock()
+	s.data = newData
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *Session) browserProfileDir() string {
+	if s.path == "" {
+		return filepath.Join(os.TempDir(), "tdm-browser-profile")
+	}
+	return filepath.Join(filepath.Dir(s.path), "browser-profile")
+}
+
 // Logout removes the persisted credentials file and resets the in-memory session.
 func (s *Session) Logout() error {
 	s.authMu.Lock()
@@ -183,6 +291,9 @@ func (s *Session) Logout() error {
 	if s.path != "" {
 		if err := os.Remove(s.path); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("failed to remove auth file: %w", err)
+		}
+		if err := os.RemoveAll(s.browserProfileDir()); err != nil {
+			return fmt.Errorf("failed to remove browser profile: %w", err)
 		}
 	}
 	return nil

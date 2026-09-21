@@ -6,11 +6,12 @@ import (
 	"fmt"
 )
 
-// Twitch client constants for the ANDROID_APP client type.
+// Twitch client constants used by legacy Android sessions and browser sessions.
 // Ported from DevilXD/TwitchDropsMiner constants.py:213-246.
 const (
 	AndroidClientID  = "kd1unb4b3q4t58fwlpcbzcbnm76a8fp"
 	AndroidClientURL = "https://www.twitch.tv"
+	WebClientID      = "kimne78kx3ncx6brgo4mv6wki5h1ko"
 )
 
 // AndroidUserAgents contains the exact Dalvik User-Agent pool for the ANDROID_APP client type.
