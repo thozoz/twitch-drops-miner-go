@@ -45,13 +45,14 @@ func TestRefreshOnUnauthorized_ConcurrentSingleFlight(t *testing.T) {
 	authPath := filepath.Join(tempDir, "auth.json")
 
 	initialData := &model.AuthData{
-		AccessToken:  "initial_access_token",
-		RefreshToken: "initial_refresh_token",
-		UserID:       12345,
-		Login:        "testuser",
-		DeviceID:     "1234567890abcdef1234567890abcdef",
-		UserAgent:    "Dalvik/2.1.0",
-		ObtainedAt:   time.Now().Add(-1 * time.Hour),
+		AccessToken:   "initial_access_token",
+		RefreshToken:  "initial_refresh_token",
+		AuthClientID:  AndroidClientID,
+		UserID:        12345,
+		Login:         "testuser",
+		DeviceID:      "1234567890abcdef1234567890abcdef",
+		AuthUserAgent: "Dalvik/2.1.0",
+		ObtainedAt:    time.Now().Add(-1 * time.Hour),
 	}
 	require.NoError(t, state.AtomicWriteJSON(authPath, initialData, 0600))
 
@@ -98,13 +99,14 @@ func TestRefreshOnUnauthorized_FailureLeavesDiskUntouched(t *testing.T) {
 	authPath := filepath.Join(tempDir, "auth.json")
 
 	initialData := &model.AuthData{
-		AccessToken:  "initial_access_token",
-		RefreshToken: "initial_refresh_token",
-		UserID:       12345,
-		Login:        "testuser",
-		DeviceID:     "1234567890abcdef1234567890abcdef",
-		UserAgent:    "Dalvik/2.1.0",
-		ObtainedAt:   time.Now().Add(-1 * time.Hour),
+		AccessToken:   "initial_access_token",
+		RefreshToken:  "initial_refresh_token",
+		AuthClientID:  "", // Legacy auth files predate the persisted OAuth client ID.
+		UserID:        12345,
+		Login:         "testuser",
+		DeviceID:      "1234567890abcdef1234567890abcdef",
+		AuthUserAgent: "Dalvik/2.1.0",
+		ObtainedAt:    time.Now().Add(-1 * time.Hour),
 	}
 	require.NoError(t, state.AtomicWriteJSON(authPath, initialData, 0600))
 	diskBytesBefore, err := os.ReadFile(authPath)
@@ -135,11 +137,116 @@ func TestSession_IdentityMethods(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, AndroidClientID, session.ClientID())
+	assert.Equal(t, AndroidUserAgents[0], session.UserAgent())
 
 	sessionID1 := session.SessionID()
 	sessionID2 := session.SessionID()
 	assert.NotEmpty(t, sessionID1)
 	assert.Equal(t, sessionID1, sessionID2, "SessionID must remain constant for the same Session")
+}
+
+func TestSession_IdentityMatchesTokenIssuer(t *testing.T) {
+	tests := []struct {
+		name          string
+		data          *model.AuthData
+		wantClientID  string
+		wantUserAgent string
+	}{
+		{
+			name: "legacy Android auth file",
+			data: &model.AuthData{
+				AuthUserAgent: "legacy-android-ua",
+			},
+			wantClientID:  AndroidClientID,
+			wantUserAgent: "legacy-android-ua",
+		},
+		{
+			name: "explicit Android auth file",
+			data: &model.AuthData{
+				AuthClientID:  AndroidClientID,
+				AuthUserAgent: AndroidUserAgents[1],
+			},
+			wantClientID:  AndroidClientID,
+			wantUserAgent: AndroidUserAgents[1],
+		},
+		{
+			name: "custom client auth file",
+			data: &model.AuthData{
+				AuthClientID:  "custom-client-id",
+				AuthUserAgent: "custom-ua",
+			},
+			wantClientID:  "custom-client-id",
+			wantUserAgent: "custom-ua",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			session := &Session{data: tt.data}
+			assert.Equal(t, tt.wantClientID, session.ClientID())
+			assert.Equal(t, tt.wantUserAgent, session.UserAgent())
+		})
+	}
+}
+
+func TestSession_IdentityLoadsLegacyAuthJSON(t *testing.T) {
+	var data model.AuthData
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"access_token":"legacy-token",
+		"refresh_token":"legacy-refresh",
+		"user_agent":"legacy-dalvik-ua"
+	}`), &data))
+
+	session := &Session{data: &data}
+	assert.Equal(t, AndroidClientID, session.ClientID())
+	assert.Equal(t, "legacy-dalvik-ua", session.UserAgent())
+}
+
+func TestSession_LoginCallbackCanReadSession(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/oauth2/device" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"device_code": "test-device-code",
+			"user_code": "ABCD-EFGH",
+			"verification_uri": "https://www.twitch.tv/activate",
+			"expires_in": 1800,
+			"interval": 5
+		}`))
+	}))
+	defer server.Close()
+
+	session, err := LoadOrEmpty(filepath.Join(t.TempDir(), "auth.json"), resty.New().SetBaseURL(server.URL))
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	callbackRead := make(chan bool, 1)
+	go func() {
+		done <- session.Login(ctx, func(_, _ string) {
+			callbackRead <- session.Authenticated()
+			cancel()
+		})
+	}()
+
+	select {
+	case authenticated := <-callbackRead:
+		assert.False(t, authenticated)
+	case <-time.After(2 * time.Second):
+		t.Fatal("login callback deadlocked while reading session state")
+	}
+
+	select {
+	case loginErr := <-done:
+		require.Error(t, loginErr)
+		assert.ErrorIs(t, loginErr, context.Canceled)
+	case <-time.After(2 * time.Second):
+		t.Fatal("login did not return after context cancellation")
+	}
 }
 
 func TestSession_Logout(t *testing.T) {

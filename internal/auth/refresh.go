@@ -25,6 +25,9 @@ type refreshResponse struct {
 // RefreshOnUnauthorized attempts to refresh the access token using the stored refresh token.
 // It is single-flighted across concurrent callers via Session's internal mutex.
 func (s *Session) RefreshOnUnauthorized(ctx context.Context) error {
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -48,18 +51,24 @@ func (s *Session) RefreshOnUnauthorized(ctx context.Context) error {
 	}
 	endpoint := strings.TrimRight(baseURL, "/") + "/oauth2/token"
 
+	authClientID := s.data.AuthClientID
+	if authClientID == "" {
+		// Auth files written before auth_client_id was introduced used the Android client.
+		authClientID = AndroidClientID
+	}
+
 	req := client.R().
 		SetContext(ctx).
 		SetHeader("Accept", "application/json").
-		SetHeader("Client-Id", AndroidClientID).
+		SetHeader("Client-Id", authClientID).
 		SetFormData(map[string]string{
-			"client_id":     AndroidClientID,
+			"client_id":     authClientID,
 			"grant_type":    "refresh_token",
 			"refresh_token": s.data.RefreshToken.Reveal(),
 		})
 
-	if s.data.UserAgent != "" {
-		req.SetHeader("User-Agent", s.data.UserAgent)
+	if s.data.AuthUserAgent != "" {
+		req.SetHeader("User-Agent", s.data.AuthUserAgent)
 	}
 	if s.data.DeviceID != "" {
 		req.SetHeader("X-Device-Id", s.data.DeviceID)
