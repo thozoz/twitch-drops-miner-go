@@ -7,12 +7,8 @@ import (
 	"math/rand/v2"
 )
 
-// Twitch client constants used for runtime requests and OAuth device authorization.
+// Twitch client constants used for OAuth device authorization and authenticated runtime requests.
 const (
-	WebClientID  = "kimne78kx3ncx6brgo4mv6wki5h1ko"
-	WebClientURL = "https://www.twitch.tv"
-	WebUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
-
 	SmartBoxClientID  = "ue6666qo983tsx6so1t0vnawi233wa"
 	SmartBoxClientURL = "https://android.tv.twitch.tv"
 	SmartBoxUserAgent = "Mozilla/5.0 (Linux; Android 7.1; Smart Box C1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"

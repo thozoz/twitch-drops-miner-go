@@ -55,9 +55,9 @@ func (s *Session) Authenticated() bool {
 	return s.data != nil && s.data.AccessToken.Reveal() != ""
 }
 
-// ClientID returns the browser client ID used for GQL and playback requests.
+// ClientID returns the SmartBox client ID that issued the session token.
 func (s *Session) ClientID() string {
-	return WebClientID
+	return SmartBoxClientID
 }
 
 // DeviceID returns the persisted device ID (satisfies gql.Identity).
@@ -75,10 +75,9 @@ func (s *Session) SessionID() string {
 	return s.sessionID
 }
 
-// UserAgent returns the browser user agent used for GQL and playback requests.
-// OAuth refreshes use the issuing client's persisted AuthUserAgent instead.
+// UserAgent returns the SmartBox user agent associated with the session token.
 func (s *Session) UserAgent() string {
-	return WebUserAgent
+	return SmartBoxUserAgent
 }
 
 // AccessToken returns the revealed plaintext access token (satisfies gql.Identity).

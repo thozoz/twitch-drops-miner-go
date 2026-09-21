@@ -167,8 +167,8 @@ func TestSession_IdentityMethods(t *testing.T) {
 	session, err := LoadOrEmpty("/non/existent/path/auth.json", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, WebClientID, session.ClientID())
-	assert.Equal(t, WebUserAgent, session.UserAgent())
+	assert.Equal(t, SmartBoxClientID, session.ClientID())
+	assert.Equal(t, SmartBoxUserAgent, session.UserAgent())
 
 	sessionID1 := session.SessionID()
 	sessionID2 := session.SessionID()
