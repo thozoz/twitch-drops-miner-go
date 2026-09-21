@@ -76,6 +76,7 @@ func (s *Session) SessionID() string {
 }
 
 // UserAgent returns the browser user agent used for GQL and playback requests.
+// OAuth refreshes use the issuing client's persisted AuthUserAgent instead.
 func (s *Session) UserAgent() string {
 	return WebUserAgent
 }

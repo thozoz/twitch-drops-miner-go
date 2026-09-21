@@ -21,15 +21,29 @@ import (
 )
 
 func TestRefreshOnUnauthorized_ConcurrentSingleFlight(t *testing.T) {
-	var requestCount int64
+	var (
+		requestCount         int64
+		observedMu           sync.Mutex
+		observedClientID     string
+		observedFormClientID string
+		observedUserAgent    string
+		observedParseErr     error
+	)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/oauth2/token" {
 			atomic.AddInt64(&requestCount, 1)
-			require.NoError(t, r.ParseForm())
-			assert.Equal(t, SmartBoxClientID, r.Header.Get("Client-Id"))
-			assert.Equal(t, SmartBoxClientID, r.FormValue("client_id"))
-			assert.Equal(t, SmartBoxUserAgent, r.Header.Get("User-Agent"))
+			parseErr := r.ParseForm()
+			observedMu.Lock()
+			observedParseErr = parseErr
+			observedClientID = r.Header.Get("Client-Id")
+			observedFormClientID = r.FormValue("client_id")
+			observedUserAgent = r.Header.Get("User-Agent")
+			observedMu.Unlock()
+			if parseErr != nil {
+				http.Error(w, parseErr.Error(), http.StatusBadRequest)
+				return
+			}
 			time.Sleep(50 * time.Millisecond) // Simulate network delay
 
 			w.Header().Set("Content-Type", "application/json")
@@ -84,6 +98,16 @@ func TestRefreshOnUnauthorized_ConcurrentSingleFlight(t *testing.T) {
 
 	assert.Equal(t, int64(1), atomic.LoadInt64(&requestCount), "exactly 1 HTTP request should be sent")
 	assert.Equal(t, "new_refreshed_access_token", session.AccessToken())
+	observedMu.Lock()
+	parseErr := observedParseErr
+	clientID := observedClientID
+	formClientID := observedFormClientID
+	userAgent := observedUserAgent
+	observedMu.Unlock()
+	require.NoError(t, parseErr)
+	assert.Equal(t, SmartBoxClientID, clientID)
+	assert.Equal(t, SmartBoxClientID, formClientID)
+	assert.Equal(t, SmartBoxUserAgent, userAgent)
 
 	var diskData model.AuthData
 	require.NoError(t, state.ReadJSON(authPath, &diskData))
