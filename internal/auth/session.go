@@ -55,9 +55,15 @@ func (s *Session) Authenticated() bool {
 	return s.data != nil && s.data.AccessToken.Reveal() != ""
 }
 
-// ClientID returns the SmartBox client ID that issued the session token.
+// ClientID returns the OAuth client that issued the session token.
+// Auth files from older releases have no AuthClientID and were issued by the Android client.
 func (s *Session) ClientID() string {
-	return SmartBoxClientID
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data != nil && s.data.AuthClientID != "" {
+		return s.data.AuthClientID
+	}
+	return AndroidClientID
 }
 
 // DeviceID returns the persisted device ID (satisfies gql.Identity).
@@ -75,9 +81,19 @@ func (s *Session) SessionID() string {
 	return s.sessionID
 }
 
-// UserAgent returns the SmartBox user agent associated with the session token.
+// UserAgent returns the user agent associated with the session token's issuing client.
 func (s *Session) UserAgent() string {
-	return SmartBoxUserAgent
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data != nil {
+		if s.data.AuthUserAgent != "" {
+			return s.data.AuthUserAgent
+		}
+		if s.data.AuthClientID == SmartBoxClientID {
+			return SmartBoxUserAgent
+		}
+	}
+	return AndroidUserAgents[0]
 }
 
 // AccessToken returns the revealed plaintext access token (satisfies gql.Identity).

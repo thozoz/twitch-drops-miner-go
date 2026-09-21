@@ -167,13 +167,48 @@ func TestSession_IdentityMethods(t *testing.T) {
 	session, err := LoadOrEmpty("/non/existent/path/auth.json", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, SmartBoxClientID, session.ClientID())
-	assert.Equal(t, SmartBoxUserAgent, session.UserAgent())
+	assert.Equal(t, AndroidClientID, session.ClientID())
+	assert.Equal(t, AndroidUserAgents[0], session.UserAgent())
 
 	sessionID1 := session.SessionID()
 	sessionID2 := session.SessionID()
 	assert.NotEmpty(t, sessionID1)
 	assert.Equal(t, sessionID1, sessionID2, "SessionID must remain constant for the same Session")
+}
+
+func TestSession_IdentityMatchesTokenIssuer(t *testing.T) {
+	tests := []struct {
+		name          string
+		data          *model.AuthData
+		wantClientID  string
+		wantUserAgent string
+	}{
+		{
+			name: "legacy Android auth file",
+			data: &model.AuthData{
+				AuthUserAgent: "legacy-android-ua",
+			},
+			wantClientID:  AndroidClientID,
+			wantUserAgent: "legacy-android-ua",
+		},
+		{
+			name: "new SmartBox auth file",
+			data: &model.AuthData{
+				AuthClientID:  SmartBoxClientID,
+				AuthUserAgent: SmartBoxUserAgent,
+			},
+			wantClientID:  SmartBoxClientID,
+			wantUserAgent: SmartBoxUserAgent,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			session := &Session{data: tt.data}
+			assert.Equal(t, tt.wantClientID, session.ClientID())
+			assert.Equal(t, tt.wantUserAgent, session.UserAgent())
+		})
+	}
 }
 
 func TestSession_Logout(t *testing.T) {
