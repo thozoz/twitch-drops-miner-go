@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -86,8 +87,13 @@ func (s *Session) SessionID() string {
 func (s *Session) UserAgent() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.data != nil && s.data.AuthUserAgent != "" {
-		return s.data.AuthUserAgent
+	if s.data != nil {
+		if s.data.AuthUserAgent != "" {
+			return s.data.AuthUserAgent
+		}
+		if s.data.AuthClientID == WebClientID {
+			return WebUserAgent
+		}
 	}
 	return AndroidUserAgents[0]
 }
@@ -157,6 +163,73 @@ func (s *Session) Login(ctx context.Context, onCode func(verificationURI, userCo
 		Login:         login,
 		DeviceID:      deviceID,
 		AuthUserAgent: userAgent,
+		ObtainedAt:    time.Now().UTC(),
+	}
+
+	if err := state.AtomicWriteJSON(s.path, newData, 0600); err != nil {
+		return fmt.Errorf("failed to persist credentials: %w", err)
+	}
+
+	s.mu.Lock()
+	s.data = newData
+	s.mu.Unlock()
+
+	return nil
+}
+
+// SetToken validates an existing OAuth token, determines the client identity, and persists the session.
+func (s *Session) SetToken(ctx context.Context, token string) error {
+	token = strings.TrimSpace(token)
+	token = strings.Trim(token, `"'`)
+	token = strings.TrimPrefix(token, "oauth:")
+	token = strings.TrimPrefix(token, "OAuth ")
+	if idx := strings.Index(token, "auth-token="); idx != -1 {
+		token = token[idx+len("auth-token="):]
+		if endIdx := strings.IndexAny(token, "; 	\r\n"); endIdx != -1 {
+			token = token[:endIdx]
+		}
+	}
+	if token == "" {
+		return errors.New("access token cannot be empty")
+	}
+
+	userID, login, clientID, err := Validate(ctx, s.httpClient, token)
+	if err != nil {
+		return fmt.Errorf("token validation failed: %w", err)
+	}
+
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
+
+	s.mu.Lock()
+	deviceID := ""
+	if s.data != nil {
+		deviceID = s.data.DeviceID
+	}
+	s.mu.Unlock()
+
+	if deviceID == "" {
+		deviceID = NewDeviceID()
+	}
+
+	authClientID := clientID
+	if authClientID == "" {
+		authClientID = WebClientID
+	}
+
+	authUserAgent := WebUserAgent
+	if authClientID == AndroidClientID {
+		authUserAgent = AndroidUserAgents[0]
+	}
+
+	newData := &model.AuthData{
+		AccessToken:   model.RedactedString(token),
+		RefreshToken:  "",
+		AuthClientID:  authClientID,
+		UserID:        userID,
+		Login:         login,
+		DeviceID:      deviceID,
+		AuthUserAgent: authUserAgent,
 		ObtainedAt:    time.Now().UTC(),
 	}
 

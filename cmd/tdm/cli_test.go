@@ -242,6 +242,17 @@ func TestHelp_Commands(t *testing.T) {
 	}
 }
 
+func TestAuthLogin_DisabledNotice(t *testing.T) {
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{"auth", "login"})
+
+	code := Execute()
+	assert.Equal(t, ExitAuthRequired, code)
+	assert.Contains(t, buf.String(), "set-token")
+}
+
 
 
 

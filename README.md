@@ -120,13 +120,30 @@ go build -o tdm ./cmd/tdm
 
 #### 2. Log in to your Twitch account:
 
+> **Important Notice:** Twitch has disabled OAuth Device Code Flow (`/oauth2/device`) on official client endpoints, causing `tdm auth login` to fail with `invalid client`. Use **`tdm auth set-token`** to authenticate using your browser's `auth-token` cookie:
+
 ```bash
-tdm auth login
+# Pass token directly:
+tdm auth set-token <your-auth-token>
+
+# Or run interactively (prompts securely):
+tdm auth set-token
 ```
 
-> If you built from source without installing, run the binary from the build directory as `./tdm` instead.
+<details>
+<summary><b>How to get your Twitch auth-token cookie (30 seconds)</b></summary>
 
-Follow the on-screen link (`https://www.twitch.tv/activate?device-code=...`) to authorize `tdm` with your Twitch account.
+1. Open [twitch.tv](https://www.twitch.tv) in your browser and ensure you are logged in.
+2. Press **F12** (or right-click anywhere and select *Inspect*) to open Developer Tools:
+   - **Firefox:** Go to the **Storage** (Depolama) tab &rarr; **Cookies** (Çerezler) &rarr; `https://www.twitch.tv` &rarr; find `auth-token` and copy its value.
+   - **Chrome / Edge / Brave:** Go to the **Application** (Uygulama) tab &rarr; **Cookies** &rarr; `https://www.twitch.tv` &rarr; find `auth-token` and copy its value.
+3. Run `tdm auth set-token <copied-value>` in your terminal.
+</details>
+
+Verify your authentication at any time:
+```bash
+tdm auth status
+```
 
 #### 3. Start mining:
 
@@ -294,7 +311,8 @@ Matching is case-sensitive on the exact Twitch category name, the same compariso
 
 | Command | Description |
 |---|---|
-| `tdm auth login` | Initiates Device Code Flow authorization and saves credentials to `auth.json`. |
+| `tdm auth set-token` | Authenticates by importing a Twitch browser `auth-token` cookie. |
+| `tdm auth login` | (Temporarily disabled by Twitch) Initiates Device Code Flow authorization. |
 | `tdm auth status` | Validates active OAuth token and prints current account info. |
 | `tdm auth logout` | Removes saved credentials from local storage. |
 

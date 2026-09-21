@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/thozoz/twitch-drops-miner-go/internal/auth"
@@ -22,6 +25,48 @@ var authLoginCmd = &cobra.Command{
 		ctx := cmd.Context()
 		logger := logging.FromContext(ctx)
 
+		cmd.Println("OAuth Device Code Flow is currently disabled by Twitch (invalid client).")
+		cmd.Println("Please authenticate using your browser's 'auth-token' cookie instead:")
+		cmd.Println("  tdm auth set-token <token>")
+		cmd.Println("See README.md for instructions on finding your auth-token cookie.")
+		logger.Warn("device login is currently disabled by Twitch; use 'tdm auth set-token'")
+		return &CommandError{
+			Code: ExitAuthRequired,
+			Err:  errors.New("device login temporarily disabled by Twitch; use 'tdm auth set-token'"),
+		}
+	},
+}
+
+var authSetTokenCmd = &cobra.Command{
+	Use:   "set-token [token]",
+	Short: "Set Twitch authentication token directly (e.g. from browser cookie)",
+	Long: `Set Twitch authentication credentials directly using an OAuth access token,
+such as the 'auth-token' cookie from your browser session on twitch.tv.
+
+If no token argument is provided, you will be prompted to enter it.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
+		logger := logging.FromContext(ctx)
+
+		var token string
+		if len(args) > 0 {
+			token = args[0]
+		} else {
+			fmt.Print("Enter Twitch auth-token: ")
+			reader := bufio.NewReader(os.Stdin)
+			input, err := reader.ReadString('\n')
+			if err != nil {
+				return &CommandError{Code: ExitError, Err: fmt.Errorf("failed to read token from stdin: %w", err)}
+			}
+			token = input
+		}
+
+		token = strings.TrimSpace(token)
+		if token == "" {
+			return &CommandError{Code: ExitError, Err: errors.New("token cannot be empty")}
+		}
+
 		authPath, err := config.AuthFilePath()
 		if err != nil {
 			logger.Error("failed to resolve auth file path", "error", err)
@@ -35,17 +80,13 @@ var authLoginCmd = &cobra.Command{
 			return &CommandError{Code: ExitError, Err: err}
 		}
 
-		onCode := func(verificationURI, userCode string) {
-			fmt.Printf("Go to %s and enter code: %s\n", verificationURI, userCode)
-		}
-
-		if err := session.Login(ctx, onCode); err != nil {
-			logger.Error("login failed", "error", err)
+		if err := session.SetToken(ctx, token); err != nil {
+			logger.Error("failed to set token", "error", err)
 			return &CommandError{Code: ExitError, Err: err}
 		}
 
 		data := session.Data()
-		fmt.Printf("Logged in as %s (user id %d)\n", data.Login, data.UserID)
+		fmt.Printf("Successfully authenticated as %s (user id %d)\n", data.Login, data.UserID)
 		return nil
 	},
 }
@@ -122,6 +163,7 @@ var authLogoutCmd = &cobra.Command{
 
 func init() {
 	authCmd.AddCommand(authLoginCmd)
+	authCmd.AddCommand(authSetTokenCmd)
 	authCmd.AddCommand(authStatusCmd)
 	authCmd.AddCommand(authLogoutCmd)
 	rootCmd.AddCommand(authCmd)
