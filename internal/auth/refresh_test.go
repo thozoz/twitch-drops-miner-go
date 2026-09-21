@@ -233,6 +233,48 @@ func TestSession_IdentityLoadsLegacyAuthJSON(t *testing.T) {
 	assert.Equal(t, "legacy-dalvik-ua", session.UserAgent())
 }
 
+func TestSession_LoginCallbackCanReadSession(t *testing.T) {
+	deviceCodeFixture := loadFixture(t, "auth_device_code.json")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/oauth2/device" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(deviceCodeFixture)
+	}))
+	defer server.Close()
+
+	session, err := LoadOrEmpty(filepath.Join(t.TempDir(), "auth.json"), resty.New().SetBaseURL(server.URL))
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	callbackRead := make(chan bool, 1)
+	go func() {
+		done <- session.Login(ctx, func(_, _ string) {
+			callbackRead <- session.Authenticated()
+			cancel()
+		})
+	}()
+
+	select {
+	case authenticated := <-callbackRead:
+		assert.False(t, authenticated)
+	case <-time.After(2 * time.Second):
+		t.Fatal("login callback deadlocked while reading session state")
+	}
+
+	select {
+	case loginErr := <-done:
+		require.Error(t, loginErr)
+		assert.ErrorIs(t, loginErr, context.Canceled)
+	case <-time.After(2 * time.Second):
+		t.Fatal("login did not return after context cancellation")
+	}
+}
+
 func TestSession_Logout(t *testing.T) {
 	tempDir := t.TempDir()
 	authPath := filepath.Join(tempDir, "auth.json")

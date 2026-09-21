@@ -25,6 +25,9 @@ type refreshResponse struct {
 // RefreshOnUnauthorized attempts to refresh the access token using the stored refresh token.
 // It is single-flighted across concurrent callers via Session's internal mutex.
 func (s *Session) RefreshOnUnauthorized(ctx context.Context) error {
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

@@ -12,6 +12,6 @@ type AuthData struct {
 	UserID        int            `json:"user_id"`
 	Login         string         `json:"login"`
 	DeviceID      string         `json:"device_id"`
-	AuthUserAgent string         `json:"user_agent"` // Legacy key retained for existing auth files.
+	AuthUserAgent string         `json:"user_agent"` // JSON key intentionally unchanged for existing auth files.
 	ObtainedAt    time.Time      `json:"obtained_at"`
 }
