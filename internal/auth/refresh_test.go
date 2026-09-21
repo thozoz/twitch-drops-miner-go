@@ -220,6 +220,19 @@ func TestSession_IdentityMatchesTokenIssuer(t *testing.T) {
 	}
 }
 
+func TestSession_IdentityLoadsLegacyAuthJSON(t *testing.T) {
+	var data model.AuthData
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"access_token":"legacy-token",
+		"refresh_token":"legacy-refresh",
+		"user_agent":"legacy-dalvik-ua"
+	}`), &data))
+
+	session := &Session{data: &data}
+	assert.Equal(t, AndroidClientID, session.ClientID())
+	assert.Equal(t, "legacy-dalvik-ua", session.UserAgent())
+}
+
 func TestSession_Logout(t *testing.T) {
 	tempDir := t.TempDir()
 	authPath := filepath.Join(tempDir, "auth.json")

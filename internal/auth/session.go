@@ -93,6 +93,8 @@ func (s *Session) UserAgent() string {
 			return SmartBoxUserAgent
 		}
 	}
+	// Valid legacy auth files contain their original user_agent. This is only a best-effort
+	// fallback for incomplete state written outside TDM.
 	return AndroidUserAgents[0]
 }
 
