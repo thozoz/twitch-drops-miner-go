@@ -86,6 +86,8 @@ func TestSession_SetToken_Sanitization(t *testing.T) {
 		{"with oauth prefix lowercase", "oauth:sanitized_token"},
 		{"with quotes and spaces", "  \"sanitized_token\"  "},
 		{"from cookie string", "auth-token=sanitized_token; Path=/; Domain=.twitch.tv"},
+		{"from quoted cookie value", "auth-token=\"sanitized_token\"; Path=/; Domain=.twitch.tv"},
+		{"from single-quoted cookie value", "auth-token='sanitized_token'; Path=/; Domain=.twitch.tv"},
 	}
 
 	for _, tt := range tests {

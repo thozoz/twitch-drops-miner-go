@@ -188,6 +188,7 @@ func (s *Session) SetToken(ctx context.Context, token string) error {
 		if endIdx := strings.IndexAny(token, "; 	\r\n"); endIdx != -1 {
 			token = token[:endIdx]
 		}
+		token = strings.Trim(token, `"'`)
 	}
 	if token == "" {
 		return errors.New("access token cannot be empty")
