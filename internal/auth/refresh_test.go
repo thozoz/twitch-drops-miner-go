@@ -29,6 +29,7 @@ func TestRefreshOnUnauthorized_ConcurrentSingleFlight(t *testing.T) {
 			require.NoError(t, r.ParseForm())
 			assert.Equal(t, SmartBoxClientID, r.Header.Get("Client-Id"))
 			assert.Equal(t, SmartBoxClientID, r.FormValue("client_id"))
+			assert.Equal(t, SmartBoxUserAgent, r.Header.Get("User-Agent"))
 			time.Sleep(50 * time.Millisecond) // Simulate network delay
 
 			w.Header().Set("Content-Type", "application/json")
@@ -48,14 +49,14 @@ func TestRefreshOnUnauthorized_ConcurrentSingleFlight(t *testing.T) {
 	authPath := filepath.Join(tempDir, "auth.json")
 
 	initialData := &model.AuthData{
-		AccessToken:  "initial_access_token",
-		RefreshToken: "initial_refresh_token",
-		AuthClientID: SmartBoxClientID,
-		UserID:       12345,
-		Login:        "testuser",
-		DeviceID:     "1234567890abcdef1234567890abcdef",
-		UserAgent:    "Dalvik/2.1.0",
-		ObtainedAt:   time.Now().Add(-1 * time.Hour),
+		AccessToken:   "initial_access_token",
+		RefreshToken:  "initial_refresh_token",
+		AuthClientID:  SmartBoxClientID,
+		UserID:        12345,
+		Login:         "testuser",
+		DeviceID:      "1234567890abcdef1234567890abcdef",
+		AuthUserAgent: SmartBoxUserAgent,
+		ObtainedAt:    time.Now().Add(-1 * time.Hour),
 	}
 	require.NoError(t, state.AtomicWriteJSON(authPath, initialData, 0600))
 
@@ -90,7 +91,7 @@ func TestRefreshOnUnauthorized_ConcurrentSingleFlight(t *testing.T) {
 	assert.Equal(t, "new_refreshed_refresh_token", diskData.RefreshToken.Reveal())
 }
 
-func TestRefreshOnUnauthorized_FailureLeavesDiskUntouched(t *testing.T) {
+func TestRefreshOnUnauthorized_LegacyFailureLeavesDiskUntouched(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.NoError(t, r.ParseForm())
 		assert.Equal(t, AndroidClientID, r.Header.Get("Client-Id"))
@@ -105,13 +106,14 @@ func TestRefreshOnUnauthorized_FailureLeavesDiskUntouched(t *testing.T) {
 	authPath := filepath.Join(tempDir, "auth.json")
 
 	initialData := &model.AuthData{
-		AccessToken:  "initial_access_token",
-		RefreshToken: "initial_refresh_token",
-		UserID:       12345,
-		Login:        "testuser",
-		DeviceID:     "1234567890abcdef1234567890abcdef",
-		UserAgent:    "Dalvik/2.1.0",
-		ObtainedAt:   time.Now().Add(-1 * time.Hour),
+		AccessToken:   "initial_access_token",
+		RefreshToken:  "initial_refresh_token",
+		AuthClientID:  "", // Legacy auth files predate the persisted OAuth client ID.
+		UserID:        12345,
+		Login:         "testuser",
+		DeviceID:      "1234567890abcdef1234567890abcdef",
+		AuthUserAgent: "Dalvik/2.1.0",
+		ObtainedAt:    time.Now().Add(-1 * time.Hour),
 	}
 	require.NoError(t, state.AtomicWriteJSON(authPath, initialData, 0600))
 	diskBytesBefore, err := os.ReadFile(authPath)

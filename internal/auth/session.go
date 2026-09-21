@@ -114,9 +114,9 @@ func (s *Session) Login(ctx context.Context, onCode func(verificationURI, userCo
 	if deviceID == "" {
 		deviceID = NewDeviceID()
 	}
-	userAgent := SmartBoxUserAgent
+	authUserAgent := SmartBoxUserAgent
 
-	accessToken, refreshToken, err := RunDeviceCodeFlow(ctx, s.httpClient, deviceID, userAgent, onCode)
+	accessToken, refreshToken, err := RunDeviceCodeFlow(ctx, s.httpClient, deviceID, authUserAgent, onCode)
 	if err != nil {
 		return fmt.Errorf("device code flow failed: %w", err)
 	}
@@ -131,14 +131,14 @@ func (s *Session) Login(ctx context.Context, onCode func(verificationURI, userCo
 	}
 
 	s.data = &model.AuthData{
-		AccessToken:  model.RedactedString(accessToken),
-		RefreshToken: model.RedactedString(refreshToken),
-		AuthClientID: SmartBoxClientID,
-		UserID:       userID,
-		Login:        login,
-		DeviceID:     deviceID,
-		UserAgent:    userAgent,
-		ObtainedAt:   time.Now().UTC(),
+		AccessToken:   model.RedactedString(accessToken),
+		RefreshToken:  model.RedactedString(refreshToken),
+		AuthClientID:  SmartBoxClientID,
+		UserID:        userID,
+		Login:         login,
+		DeviceID:      deviceID,
+		AuthUserAgent: authUserAgent,
+		ObtainedAt:    time.Now().UTC(),
 	}
 
 	if err := state.AtomicWriteJSON(s.path, s.data, 0600); err != nil {

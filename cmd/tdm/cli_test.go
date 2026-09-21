@@ -86,12 +86,12 @@ func TestAuthStatus_InvalidTokenExit2(t *testing.T) {
 	t.Cleanup(func() { xdg.Reload() })
 
 	data := &model.AuthData{
-		AccessToken:  "invalid_token",
-		RefreshToken: "some_refresh_token",
-		UserID:       123,
-		Login:        "testuser",
-		DeviceID:     "1234567890abcdef1234567890abcdef",
-		UserAgent:    "Dalvik/2.1.0",
+		AccessToken:   "invalid_token",
+		RefreshToken:  "some_refresh_token",
+		UserID:        123,
+		Login:         "testuser",
+		DeviceID:      "1234567890abcdef1234567890abcdef",
+		AuthUserAgent: "Dalvik/2.1.0",
 	}
 	require.NoError(t, state.AtomicWriteJSON(authPath, data, 0600))
 
@@ -241,8 +241,3 @@ func TestHelp_Commands(t *testing.T) {
 		assert.Equal(t, ExitOK, code)
 	}
 }
-
-
-
-
-

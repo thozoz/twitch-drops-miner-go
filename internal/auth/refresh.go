@@ -63,8 +63,8 @@ func (s *Session) RefreshOnUnauthorized(ctx context.Context) error {
 			"refresh_token": s.data.RefreshToken.Reveal(),
 		})
 
-	if s.data.UserAgent != "" {
-		req.SetHeader("User-Agent", s.data.UserAgent)
+	if s.data.AuthUserAgent != "" {
+		req.SetHeader("User-Agent", s.data.AuthUserAgent)
 	}
 	if s.data.DeviceID != "" {
 		req.SetHeader("X-Device-Id", s.data.DeviceID)
