@@ -9,14 +9,15 @@ import (
 // Twitch client constants for the ANDROID_APP client type.
 // Ported from DevilXD/TwitchDropsMiner constants.py:213-246.
 const (
-	AndroidClientID  = "kd1unb4b3q4t58fwlpcbzcbnm76a8fp"
-	AndroidClientURL = "https://www.twitch.tv"
+	AndroidClientID         = "kd1unb4b3q4t58fwlpcbzcbnm76a8fp"
+	AndroidClientURL        = "https://www.twitch.tv"
+	DefaultAndroidUserAgent = "Dalvik/2.1.0 (Linux; U; Android 16; SM-S911B Build/TP1A.220624.014) tv.twitch.android.app/25.3.0/2503006"
 )
 
 // AndroidUserAgents contains the exact Dalvik User-Agent pool for the ANDROID_APP client type.
 // Transcribed verbatim from constants.py:217-245.
 var AndroidUserAgents = []string{
-	"Dalvik/2.1.0 (Linux; U; Android 16; SM-S911B Build/TP1A.220624.014) tv.twitch.android.app/25.3.0/2503006",
+	DefaultAndroidUserAgent,
 	"Dalvik/2.1.0 (Linux; U; Android 16; SM-S938B Build/BP2A.250605.031) tv.twitch.android.app/25.3.0/2503006",
 	"Dalvik/2.1.0 (Linux; Android 16; SM-X716N Build/UP1A.231005.007) tv.twitch.android.app/25.3.0/2503006",
 	"Dalvik/2.1.0 (Linux; U; Android 15; SM-G990B Build/AP3A.240905.015.A2) tv.twitch.android.app/25.3.0/2503006",

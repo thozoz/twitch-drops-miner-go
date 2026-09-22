@@ -89,7 +89,7 @@ func (s *Session) UserAgent() string {
 	if s.data != nil && s.data.AuthUserAgent != "" {
 		return s.data.AuthUserAgent
 	}
-	return AndroidUserAgents[0]
+	return DefaultAndroidUserAgent
 }
 
 // AccessToken returns the revealed plaintext access token (satisfies gql.Identity).
@@ -132,7 +132,7 @@ func (s *Session) Login(ctx context.Context, onCode func(verificationURI, userCo
 		deviceID = NewDeviceID()
 	}
 	if userAgent == "" {
-		userAgent = AndroidUserAgents[0]
+		userAgent = DefaultAndroidUserAgent
 	}
 
 	accessToken, refreshToken, err := RunDeviceCodeFlow(ctx, s.httpClient, deviceID, userAgent, onCode)
