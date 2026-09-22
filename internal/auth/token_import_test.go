@@ -18,10 +18,12 @@ import (
 
 func TestNormalizeTokenInput(t *testing.T) {
 	tests := map[string]string{
-		" token ":     "token",
-		"OAuth token": "token",
-		"oauth:token": "token",
-		`"token"`:     "token",
+		" token ":       "token",
+		"OAuth token":   "token",
+		"OAuth 'token'": "token",
+		`OAuth "token"`: "token",
+		"oauth:token":   "token",
+		`"token"`:       "token",
 		"auth-token=token; Path=/; Domain=.twitch.tv":   "token",
 		`auth-token="token"; Path=/; Domain=.twitch.tv`: "token",
 		`auth-token='token'; Path=/; Domain=.twitch.tv`: "token",
@@ -52,7 +54,8 @@ func TestSessionSetTokenImportsAndroidToken(t *testing.T) {
 }
 
 func TestSessionSetTokenRejectsWebToken(t *testing.T) {
-	server := tokenValidationServer(t, "kimne78kx3ncx6brgo4mv6wki5h1ko")
+	const twitchWebClientID = "kimne78kx3ncx6brgo4mv6wki5h1ko"
+	server := tokenValidationServer(t, twitchWebClientID)
 	defer server.Close()
 
 	authPath := filepath.Join(t.TempDir(), "auth.json")

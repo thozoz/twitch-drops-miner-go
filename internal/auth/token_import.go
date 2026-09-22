@@ -27,7 +27,7 @@ func NormalizeTokenInput(input string) string {
 	}
 	token = strings.TrimPrefix(token, "OAuth ")
 	token = strings.TrimPrefix(token, "oauth:")
-	return strings.TrimSpace(token)
+	return strings.Trim(strings.TrimSpace(token), `"'`)
 }
 
 // SetToken imports an existing Android-issued OAuth token. Web tokens are
