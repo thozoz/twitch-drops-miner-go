@@ -137,7 +137,7 @@ func TestSession_IdentityMethods(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, AndroidClientID, session.ClientID())
-	assert.Equal(t, AndroidUserAgents[0], session.UserAgent())
+	assert.Equal(t, DefaultAndroidUserAgent, session.UserAgent())
 
 	sessionID1 := session.SessionID()
 	sessionID2 := session.SessionID()

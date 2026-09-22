@@ -68,7 +68,7 @@ func (s *Session) SetToken(ctx context.Context, input string) error {
 		UserID:        userID,
 		Login:         login,
 		DeviceID:      deviceID,
-		AuthUserAgent: AndroidUserAgents[0],
+		AuthUserAgent: DefaultAndroidUserAgent,
 		ObtainedAt:    time.Now().UTC(),
 	}
 	if err := state.AtomicWriteJSON(s.path, newData, 0600); err != nil {

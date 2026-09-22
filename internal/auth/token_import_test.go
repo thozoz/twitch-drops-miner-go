@@ -44,13 +44,14 @@ func TestSessionSetTokenImportsAndroidToken(t *testing.T) {
 
 	assert.Equal(t, "android-token", session.AccessToken())
 	assert.Equal(t, AndroidClientID, session.ClientID())
-	assert.Equal(t, AndroidUserAgents[0], session.UserAgent())
+	assert.Equal(t, DefaultAndroidUserAgent, session.UserAgent())
 
 	var saved model.AuthData
 	require.NoError(t, state.ReadJSON(authPath, &saved))
 	assert.Equal(t, "android-token", saved.AccessToken.Reveal())
 	assert.Equal(t, AndroidClientID, saved.AuthClientID)
 	assert.Equal(t, "testuser", saved.Login)
+	assert.Equal(t, 12345, saved.UserID)
 }
 
 func TestSessionSetTokenRejectsWebToken(t *testing.T) {
