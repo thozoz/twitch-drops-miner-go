@@ -218,9 +218,8 @@ func TestWatcher_TickerDrain(t *testing.T) {
 		return atomic.LoadInt32(&beaconCount) == 2
 	}, 2*time.Second, 20*time.Millisecond)
 
-	// Ensure no extra beacons were triggered by the drained ticks.
-	time.Sleep(50 * time.Millisecond)
-	assert.Equal(t, int32(2), atomic.LoadInt32(&beaconCount), "5 queued burst ticks must collapse into exactly 1 beacon send")
-
+	// The second beacon is sent only after drainTicker empties the burst.
+	assert.Empty(t, tickChan)
 	watcher.Stop()
+	assert.Equal(t, int32(2), atomic.LoadInt32(&beaconCount), "5 queued burst ticks must collapse into exactly 1 beacon send")
 }

@@ -40,6 +40,9 @@ func (s *Session) SetToken(ctx context.Context, input string) error {
 
 	s.authMu.Lock()
 	defer s.authMu.Unlock()
+	// authMu serializes every session writer (login, refresh, import, and
+	// logout). mu only guards short in-memory snapshots and is never held
+	// while acquiring authMu, so the lock order remains consistent.
 
 	userID, login, clientID, err := Validate(ctx, s.httpClient, token)
 	if err != nil {

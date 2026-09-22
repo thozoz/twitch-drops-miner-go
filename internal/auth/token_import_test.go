@@ -96,7 +96,7 @@ func tokenValidationServer(t *testing.T, clientID string) *httptest.Server {
 		assert.Equal(t, "/oauth2/validate", r.URL.Path)
 		assert.Contains(t, r.Header.Get("Authorization"), "token")
 		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+		assert.NoError(t, json.NewEncoder(w).Encode(map[string]any{
 			"client_id": clientID,
 			"login":     "testuser",
 			"user_id":   "12345",
