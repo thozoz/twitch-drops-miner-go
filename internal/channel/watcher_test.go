@@ -228,5 +228,5 @@ func TestWatcher_TickerDrain(t *testing.T) {
 
 	watcher.Stop()
 	assert.Empty(t, tickChan)
-	assert.Equal(t, int32(2), atomic.LoadInt32(&beaconCount), "5 queued burst ticks must collapse into exactly 1 beacon send")
+	assert.Equal(t, int32(2), atomic.LoadInt32(&beaconCount), "initial beacon plus five collapsed ticks must produce exactly two sends")
 }

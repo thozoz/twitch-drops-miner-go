@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/go-resty/resty/v2"
@@ -35,7 +34,7 @@ func TestNormalizeTokenInput(t *testing.T) {
 }
 
 func TestSessionSetTokenImportsAndroidToken(t *testing.T) {
-	server := tokenValidationServer(AndroidClientID)
+	server := tokenValidationServer(AndroidClientID, "android-token")
 	defer server.Close()
 
 	authPath := filepath.Join(t.TempDir(), "auth.json")
@@ -56,7 +55,7 @@ func TestSessionSetTokenImportsAndroidToken(t *testing.T) {
 
 func TestSessionSetTokenRejectsWebToken(t *testing.T) {
 	const twitchWebClientID = "kimne78kx3ncx6brgo4mv6wki5h1ko"
-	server := tokenValidationServer(twitchWebClientID)
+	server := tokenValidationServer(twitchWebClientID, "web-token")
 	defer server.Close()
 
 	authPath := filepath.Join(t.TempDir(), "auth.json")
@@ -94,9 +93,9 @@ func TestSessionSetTokenPreservesExistingSessionOnValidationFailure(t *testing.T
 	assert.Equal(t, "existing-token", session.AccessToken())
 }
 
-func tokenValidationServer(clientID string) *httptest.Server {
+func tokenValidationServer(clientID, token string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/oauth2/validate" || !strings.Contains(r.Header.Get("Authorization"), "token") {
+		if r.URL.Path != "/oauth2/validate" || r.Header.Get("Authorization") != "OAuth "+token {
 			http.Error(w, "unexpected validation request", http.StatusBadRequest)
 			return
 		}
