@@ -196,6 +196,10 @@ func TestWatcher_TickerDrain(t *testing.T) {
 
 	// Inject a custom tick channel provider with a buffered channel
 	tickChan := make(chan time.Time, 10)
+	// Queue the burst before Start so the watcher always sees the complete burst.
+	for i := 0; i < 5; i++ {
+		tickChan <- time.Now()
+	}
 	watcher.tickerChanProvider = func(d time.Duration) (<-chan time.Time, func()) {
 		return tickChan, func() {}
 	}
@@ -209,20 +213,13 @@ func TestWatcher_TickerDrain(t *testing.T) {
 	err = watcher.Start(context.Background(), ch)
 	require.NoError(t, err)
 
-	// 1 initial beacon was sent immediately
+	// 1 initial beacon + 1 collapsed burst beacon = exactly 2 beacons.
 	require.Eventually(t, func() bool {
-		return atomic.LoadInt32(&beaconCount) == 1
+		return atomic.LoadInt32(&beaconCount) == 2
 	}, 2*time.Second, 20*time.Millisecond)
 
-	// Queue 5 burst ticks into the channel (simulating host wake after sleep)
-	for i := 0; i < 5; i++ {
-		tickChan <- time.Now()
-	}
-
-	// Wait briefly for the loop to process the tick
-	time.Sleep(100 * time.Millisecond)
-
-	// The loop must have drained the queued ticks and sent exactly 1 additional beacon (total 2)
+	// Ensure no extra beacons were triggered by the drained ticks.
+	time.Sleep(50 * time.Millisecond)
 	assert.Equal(t, int32(2), atomic.LoadInt32(&beaconCount), "5 queued burst ticks must collapse into exactly 1 beacon send")
 
 	watcher.Stop()
