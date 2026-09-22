@@ -19,10 +19,11 @@ var authCmd = &cobra.Command{
 
 var authLoginCmd = &cobra.Command{
 	Use:   "login",
-	Short: "Authenticate with Twitch using OAuth Device Code Flow",
+	Short: "Attempt the currently unavailable Twitch Device Code login",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		logger := logging.FromContext(ctx)
+		cmd.PrintErrln("Warning: Twitch currently rejects TDM's Android Device Code client, so fresh login is expected to fail. Existing Android credentials remain supported; see README.md and issue #24.")
 
 		authPath, err := config.AuthFilePath()
 		if err != nil {
