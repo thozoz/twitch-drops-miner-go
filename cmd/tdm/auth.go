@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -106,11 +107,11 @@ the argument to read the token from standard input.`,
 			token = args[0]
 		} else {
 			cmd.Print("Enter existing Android Twitch token: ")
-			input, err := io.ReadAll(cmd.InOrStdin())
+			input, err := readTokenLine(cmd.InOrStdin())
 			if err != nil {
 				return &CommandError{Code: ExitError, Err: fmt.Errorf("read token from stdin: %w", err)}
 			}
-			token = string(input)
+			token = input
 		}
 
 		authPath, err := config.AuthFilePath()
@@ -129,6 +130,14 @@ the argument to read the token from standard input.`,
 		cmd.Printf("Imported token for %s (user id %d)\n", data.Login, data.UserID)
 		return nil
 	},
+}
+
+func readTokenLine(r io.Reader) (string, error) {
+	input, err := bufio.NewReader(r).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	return input, nil
 }
 
 var authLogoutCmd = &cobra.Command{
