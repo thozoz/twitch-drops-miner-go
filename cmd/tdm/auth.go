@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/spf13/cobra"
 	"github.com/thozoz/twitch-drops-miner-go/internal/auth"
@@ -90,6 +91,46 @@ var authStatusCmd = &cobra.Command{
 	},
 }
 
+var authSetTokenCmd = &cobra.Command{
+	Use:   "set-token [legacy-android-token]",
+	Short: "Import an existing Android-issued Twitch token",
+	Long: `Import an existing Android-issued Twitch OAuth token.
+
+This command cannot create a new token. Twitch Web/browser auth-token cookies
+are rejected because they do not pass headless GraphQL integrity checks. Omit
+the argument to read the token from standard input.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		var token string
+		if len(args) == 1 {
+			token = args[0]
+		} else {
+			cmd.Print("Enter existing Android Twitch token: ")
+			input, err := io.ReadAll(cmd.InOrStdin())
+			if err != nil {
+				return &CommandError{Code: ExitError, Err: fmt.Errorf("read token from stdin: %w", err)}
+			}
+			token = string(input)
+		}
+
+		authPath, err := config.AuthFilePath()
+		if err != nil {
+			return &CommandError{Code: ExitError, Err: err}
+		}
+		session, err := auth.LoadOrEmpty(authPath, newHTTPClient())
+		if err != nil {
+			return &CommandError{Code: ExitError, Err: err}
+		}
+		if err := session.SetToken(cmd.Context(), token); err != nil {
+			return &CommandError{Code: ExitError, Err: err}
+		}
+
+		data := session.Data()
+		cmd.Printf("Imported token for %s (user id %d)\n", data.Login, data.UserID)
+		return nil
+	},
+}
+
 var authLogoutCmd = &cobra.Command{
 	Use:   "logout",
 	Short: "Log out and remove stored credentials",
@@ -122,6 +163,7 @@ var authLogoutCmd = &cobra.Command{
 
 func init() {
 	authCmd.AddCommand(authLoginCmd)
+	authCmd.AddCommand(authSetTokenCmd)
 	authCmd.AddCommand(authStatusCmd)
 	authCmd.AddCommand(authLogoutCmd)
 	rootCmd.AddCommand(authCmd)
