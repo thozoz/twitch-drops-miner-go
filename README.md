@@ -84,6 +84,8 @@ See [Docker Usage](#docker-usage) below for the full authenticate-then-run flow.
 
 **Option B — Install on Host (npm)** (requires Node.js 18+):
 
+For an existing authenticated installation:
+
 ```bash
 npm install -g @thozoz/dropminer
 tdm auth status
