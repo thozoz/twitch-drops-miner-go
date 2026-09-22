@@ -1,5 +1,8 @@
 # Twitch Drops Miner (Go)
 
+> [!WARNING]
+> **Fresh Twitch login is currently unavailable.** Twitch disabled the Android OAuth Device Code client used by `tdm auth login`, so new users cannot authenticate at this time. Existing installations with a valid Android token continue to work. Browser `auth-token` cookies are not a replacement: Twitch rejects their headless GraphQL requests with an integrity check. If you do not already have a working Android token or `auth.json`, do not install TDM yet; follow [issue #24](https://github.com/thozoz/twitch-drops-miner-go/issues/24) for updates.
+
 [![CI](https://github.com/thozoz/twitch-drops-miner-go/actions/workflows/ci.yml/badge.svg)](https://github.com/thozoz/twitch-drops-miner-go/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/thozoz/twitch-drops-miner-go?sort=semver)](https://github.com/thozoz/twitch-drops-miner-go/releases/latest)
 [![Go Reference](https://pkg.go.dev/badge/github.com/thozoz/twitch-drops-miner-go.svg)](https://pkg.go.dev/github.com/thozoz/twitch-drops-miner-go)
@@ -29,7 +32,7 @@ To keep channel states up-to-date and detect drop completions instantly, a WebSo
 - **Dual progress engine:** Subscribes to real-time Twitch PubSub WebSocket events for immediate drop progression and auto-claiming, backed by periodic GQL reconciliation.
 - **Game priority and exclusion lists:** Configure which games to mine and in what order. Modify priorities dynamically while the daemon is actively running.
 - **Local IPC control plane:** Fast JSON-RPC 2.0 interface over a secure Unix domain socket (`0600` permissions on Linux/macOS) or Named Pipe (Windows).
-- **Headless OAuth login:** Authenticate easily from remote SSH sessions via Twitch OAuth Device Code Flow (`https://www.twitch.tv/activate`).
+- **Headless operation:** Existing authenticated sessions run from remote SSH environments without a GUI or browser.
 - **Atomic state persistence:** Saves runtime progress atomically to `state.json` to safely resume sessions across restarts.
 - **Double-start prevention:** Rejects duplicate daemon instances to prevent concurrent beacon emissions on the same account.
 - **Single static binary:** Pure Go with `CGO_ENABLED=0` (<15 MB binary size) with cross-platform support for Linux (`amd64`, `arm64`), macOS, and Windows.
@@ -83,7 +86,7 @@ See [Docker Usage](#docker-usage) below for the full authenticate-then-run flow.
 
 ```bash
 npm install -g @thozoz/dropminer
-tdm auth login
+tdm auth status
 tdm start
 ```
 
@@ -118,15 +121,18 @@ make build
 go build -o tdm ./cmd/tdm
 ```
 
-#### 2. Log in to your Twitch account:
+#### 2. Use an existing authenticated session:
+
+> **Current Twitch limitation:** `tdm auth login` fails for fresh accounts because Twitch disabled this app's Android Device Code client. Browser cookies also fail Twitch's headless GraphQL integrity check. Existing valid Android sessions remain supported; `tdm auth set-token` can import an existing Android-issued token but cannot create a new one.
+
+Copy your existing working `auth.json` into TDM's state directory, or import an existing Android-issued access token through standard input:
 
 ```bash
-tdm auth login
+tdm auth set-token
+tdm auth status
 ```
 
-> If you built from source without installing, run the binary from the build directory as `./tdm` instead.
-
-Follow the on-screen link (`https://www.twitch.tv/activate?device-code=...`) to authorize `tdm` with your Twitch account.
+Do not use a browser `auth-token` cookie; the command validates the issuing client and rejects Web tokens. Copying `auth.json` is preferred because it also preserves the refresh token. If you built from source without installing, run the binary from the build directory as `./tdm` instead.
 
 #### 3. Start mining:
 
@@ -156,13 +162,13 @@ For 24/7 unattended mining on Linux VPS, TrueNAS, Unraid, Synology, or Raspberry
 mkdir -p data config
 ```
 
-#### 2. Authenticate (one-time, interactive):
+#### 2. Import an existing Android token (one-time, interactive):
 
 ```bash
-docker run --rm -it -v "$(pwd)/data:/root/.local/state/tdm" -v "$(pwd)/config:/root/.config/tdm" ghcr.io/thozoz/tdm:latest tdm auth login
+docker run --rm -it -v "$(pwd)/data:/root/.local/state/tdm" -v "$(pwd)/config:/root/.config/tdm" ghcr.io/thozoz/tdm:latest tdm auth set-token
 ```
 
-This step is interactive (`-it`) and must complete before starting the daemon — a fresh `docker compose up -d` with no credentials yet will crash-loop under `restart: unless-stopped`.
+This accepts only an existing Android-issued token. You can instead copy a working `auth.json` to `./data/auth.json`, which is preferred because it preserves refresh credentials. This step must complete before starting the daemon; a fresh `docker compose up -d` with no credentials will crash-loop under `restart: unless-stopped`.
 
 #### 3. Start the daemon in the background:
 
@@ -294,7 +300,8 @@ Matching is case-sensitive on the exact Twitch category name, the same compariso
 
 | Command | Description |
 |---|---|
-| `tdm auth login` | Initiates Device Code Flow authorization and saves credentials to `auth.json`. |
+| `tdm auth login` | Currently unavailable for fresh accounts because Twitch disabled the Android Device Code client. |
+| `tdm auth set-token [token]` | Imports an existing Android-issued token; browser/Web tokens are rejected. |
 | `tdm auth status` | Validates active OAuth token and prints current account info. |
 | `tdm auth logout` | Removes saved credentials from local storage. |
 
