@@ -88,12 +88,11 @@ For an existing authenticated installation:
 
 ```bash
 npm install -g @thozoz/dropminer
-tdm auth status
-tdm start
 ```
 
 Installs the `tdm` command — the package and the command are deliberately named differently, the same way the `typescript` package installs `tsc`.
 This complements (does not replace) the binary/`go install` methods below.
+Only continue to `tdm start` after restoring a working Android `auth.json` or importing an existing Android-issued token as described below.
 
 **Option C — prebuilt binary** (no Go toolchain required):
 

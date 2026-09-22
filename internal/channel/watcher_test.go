@@ -193,6 +193,10 @@ func TestWatcher_TickerDrain(t *testing.T) {
 	httpClient := resty.New().SetHostURL(server.URL)
 	gqlClient := gql.NewClient(reg, nil, nil, httpClient, gql.WithMinRetryDelay(1*time.Millisecond))
 	watcher := NewWatcher(gqlClient, httpClient, nil, 12345)
+	beaconDone := make(chan int, 2)
+	watcher.OnBeacon = func(seq int, _ bool, _ error) {
+		beaconDone <- seq
+	}
 
 	// Inject a custom tick channel provider with a buffered channel
 	tickChan := make(chan time.Time, 10)
@@ -213,13 +217,16 @@ func TestWatcher_TickerDrain(t *testing.T) {
 	err = watcher.Start(context.Background(), ch)
 	require.NoError(t, err)
 
-	// 1 initial beacon + 1 collapsed burst beacon = exactly 2 beacons.
-	require.Eventually(t, func() bool {
-		return atomic.LoadInt32(&beaconCount) == 2
-	}, 2*time.Second, 20*time.Millisecond)
+	for want := 1; want <= 2; want++ {
+		select {
+		case got := <-beaconDone:
+			assert.Equal(t, want, got)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for beacon %d", want)
+		}
+	}
 
-	// The second beacon is sent only after drainTicker empties the burst.
-	assert.Empty(t, tickChan)
 	watcher.Stop()
+	assert.Empty(t, tickChan)
 	assert.Equal(t, int32(2), atomic.LoadInt32(&beaconCount), "5 queued burst ticks must collapse into exactly 1 beacon send")
 }
