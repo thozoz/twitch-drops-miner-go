@@ -70,6 +70,29 @@ func TestSessionSetTokenRejectsWebToken(t *testing.T) {
 	assert.False(t, session.Authenticated())
 }
 
+func TestSessionSetTokenPreservesRefreshTokenForSameAndroidAccount(t *testing.T) {
+	server := tokenValidationServer(AndroidClientID, "replacement-token")
+	defer server.Close()
+
+	authPath := filepath.Join(t.TempDir(), "auth.json")
+	existing := &model.AuthData{
+		AccessToken:  "old-token",
+		RefreshToken: "existing-refresh-token",
+		AuthClientID: AndroidClientID,
+		UserID:       12345,
+		DeviceID:     "existing-device-id",
+	}
+	require.NoError(t, state.AtomicWriteJSON(authPath, existing, 0600))
+	session, err := LoadOrEmpty(authPath, resty.New().SetBaseURL(server.URL))
+	require.NoError(t, err)
+	require.NoError(t, session.SetToken(context.Background(), "replacement-token"))
+
+	var saved model.AuthData
+	require.NoError(t, state.ReadJSON(authPath, &saved))
+	assert.Equal(t, "existing-refresh-token", saved.RefreshToken.Reveal())
+	assert.Equal(t, "existing-device-id", saved.DeviceID)
+}
+
 func TestSessionSetTokenRejectsEmptyInput(t *testing.T) {
 	session, err := LoadOrEmpty(filepath.Join(t.TempDir(), "auth.json"), nil)
 	require.NoError(t, err)

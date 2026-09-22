@@ -54,8 +54,16 @@ func (s *Session) SetToken(ctx context.Context, input string) error {
 
 	s.mu.Lock()
 	deviceID := ""
+	refreshToken := model.RedactedString("")
 	if s.data != nil {
 		deviceID = s.data.DeviceID
+		existingClientID := s.data.AuthClientID
+		if existingClientID == "" {
+			existingClientID = AndroidClientID
+		}
+		if s.data.UserID == userID && existingClientID == AndroidClientID {
+			refreshToken = s.data.RefreshToken
+		}
 	}
 	s.mu.Unlock()
 	if deviceID == "" {
@@ -64,6 +72,7 @@ func (s *Session) SetToken(ctx context.Context, input string) error {
 
 	newData := &model.AuthData{
 		AccessToken:   model.RedactedString(token),
+		RefreshToken:  refreshToken,
 		AuthClientID:  AndroidClientID,
 		UserID:        userID,
 		Login:         login,
