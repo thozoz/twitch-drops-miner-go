@@ -70,16 +70,6 @@ var mineCmd = &cobra.Command{
 			return &CommandError{Code: ExitError, Err: err}
 		}
 
-		// Startup sweep of unclaimed drops from prior runs (CLAIM-02)
-		now := time.Now()
-		sweptCount, sweepErrs := inventory.SweepUnclaimed(ctx, client, authSession.Data().UserID, campaigns, now, logger)
-		if len(sweepErrs) > 0 {
-			logger.Warn("encountered errors during startup sweep of unclaimed drops", "errors_count", len(sweepErrs))
-		}
-		if sweptCount > 0 {
-			logger.Info("swept and claimed unclaimed drops from prior runs", "count", sweptCount)
-		}
-
 		cfg := config.FromContext(ctx)
 		var priority, exclude, dropExclude []string
 		enableBadgesEmotes := false
@@ -88,6 +78,20 @@ var mineCmd = &cobra.Command{
 			exclude = cfg.Exclude
 			dropExclude = cfg.DropExclude
 			enableBadgesEmotes = cfg.EnableBadgesEmotes
+		}
+
+		// Startup sweep of unclaimed drops from prior runs (CLAIM-02)
+		now := time.Now()
+		sweptCount, sweepErrs := inventory.SweepUnclaimed(
+			ctx, client, authSession.Data().UserID, campaigns, now, logger,
+			inventory.WithSweepExclude(exclude),
+			inventory.WithSweepDropExclude(dropExclude),
+		)
+		if len(sweepErrs) > 0 {
+			logger.Warn("encountered errors during startup sweep of unclaimed drops", "errors_count", len(sweepErrs))
+		}
+		if sweptCount > 0 {
+			logger.Info("swept and claimed unclaimed drops from prior runs", "count", sweptCount)
 		}
 
 		eligible, skipped := inventory.SplitEligible(campaigns, enableBadgesEmotes)

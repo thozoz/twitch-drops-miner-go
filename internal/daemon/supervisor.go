@@ -146,13 +146,31 @@ func NewProductionSupervisor(
 	}
 	fetcher := inventory.NewFetcher(gqlClient)
 
+	var s *Supervisor
+	unclaimableDrops := make(map[string]time.Time)
+
 	fetchInventory := func(ctx context.Context) ([]inventory.DropsCampaign, error) {
 		campaigns, err := fetcher.FetchInventory(ctx, userID)
 		if err != nil {
 			return nil, err
 		}
 
-		sweptCount, sweepErrs := inventory.SweepUnclaimed(ctx, gqlClient, userID, campaigns, time.Now(), logger)
+		var currentExclude, currentDropExclude []string
+		if s != nil {
+			s.priorityMu.RLock()
+			currentExclude = append([]string(nil), s.exclude...)
+			currentDropExclude = append([]string(nil), s.dropExclude...)
+			s.priorityMu.RUnlock()
+		} else {
+			currentExclude = append([]string(nil), exclude...)
+		}
+
+		sweptCount, sweepErrs := inventory.SweepUnclaimed(
+			ctx, gqlClient, userID, campaigns, time.Now(), logger,
+			inventory.WithSweepExclude(currentExclude),
+			inventory.WithSweepDropExclude(currentDropExclude),
+			inventory.WithSweepUnclaimableCache(unclaimableDrops),
+		)
 		if len(sweepErrs) > 0 {
 			logger.Warn("encountered errors during startup sweep of unclaimed drops", "errors_count", len(sweepErrs))
 		}
@@ -178,7 +196,8 @@ func NewProductionSupervisor(
 	}
 
 	allOpts := append([]SupervisorOption{WithEnableBadgesEmotes(enableBadgesEmotes)}, opts...)
-	return NewSupervisor(fetchInventory, resolveChannel, logger, priority, exclude, allOpts...)
+	s = NewSupervisor(fetchInventory, resolveChannel, logger, priority, exclude, allOpts...)
+	return s
 }
 
 // Run runs the supervisor loop: select campaign -> resolve channel -> watch -> repeat.

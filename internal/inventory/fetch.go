@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -398,5 +399,13 @@ func isTwitchNativeLink(rawURL string) bool {
 	if rawURL == "" {
 		return true
 	}
-	return strings.Contains(rawURL, "twitch.tv")
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "id.twitch.tv" || strings.HasPrefix(u.Path, "/oauth2") {
+		return false
+	}
+	return host == "twitch.tv" || strings.HasSuffix(host, ".twitch.tv")
 }

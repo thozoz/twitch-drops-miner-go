@@ -486,6 +486,9 @@ func (s *WatchSession) claimAndAdvance(ctx context.Context, campaign *inventory.
 
 	claimed, err := inventory.ClaimDrop(ctx, s.gqlClient, *campaign, activeDrop, s.userID, s.logger)
 	if err != nil {
+		if errors.Is(err, inventory.ErrAccountNotLinked) {
+			return nil
+		}
 		return err
 	}
 	if !claimed {
