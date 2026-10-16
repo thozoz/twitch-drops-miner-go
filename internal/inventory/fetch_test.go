@@ -212,3 +212,29 @@ func TestSplitEligible_BadgeOrEmoteGating(t *testing.T) {
 		assert.Equal(t, SkipReasonUnlinked, skipped[0].Reason)
 	})
 }
+
+func TestIsTwitchNativeLink(t *testing.T) {
+	tests := []struct {
+		url  string
+		want bool
+	}{
+		{"", true},
+		{"https://twitch.tv", true},
+		{"https://www.twitch.tv/drops/campaigns", true},
+		{"https://help.twitch.tv/s/article/mission-and-drops", true},
+		{"https://blog.twitch.tv/en/2026/08/subtember", true},
+		{"https://id.twitch.tv/oauth2/authorize?client_id=123", false},
+		{"https://id.twitch.tv/oauth2/keys", false},
+		{"https://id.twitch.tv/some-path", false},
+		{"https://account.ea.com/connect/twitch", false},
+		{"https://warframe.com/twitch/link", false},
+		{"not-a-valid-url:%%%", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			got := isTwitchNativeLink(tt.url)
+			assert.Equal(t, tt.want, got, "url: %s", tt.url)
+		})
+	}
+}

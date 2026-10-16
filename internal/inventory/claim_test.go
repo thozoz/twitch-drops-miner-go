@@ -3,6 +3,7 @@ package inventory
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -250,6 +251,36 @@ func TestClaim_ClaimDrop(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, claimed)
 	})
+
+	t.Run("eligible status with isUserAccountConnected=false returns ErrAccountNotLinked", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"data":{"claimDropRewards":{"status":"ELIGIBLE_FOR_ALL","isUserAccountConnected":false}}}`))
+		}))
+		defer server.Close()
+
+		reg, _, err := gql.LoadRegistry("")
+		require.NoError(t, err)
+
+		httpClient := resty.New().SetHostURL(server.URL)
+		client := gql.NewClient(reg, nil, nil, httpClient, gql.WithMinRetryDelay(1*time.Millisecond))
+
+		drop := &TimedDrop{
+			ID:              "drop-unlinked",
+			Name:            "Unlinked Drop",
+			RequiredMinutes: 60,
+			CurrentMinutes:  60,
+			IsClaimed:       false,
+			ClaimID:         "claim-unlinked",
+		}
+
+		claimed, err := ClaimDrop(context.Background(), client, campaign, drop, 999, nil)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrAccountNotLinked))
+		assert.False(t, claimed)
+		assert.False(t, drop.IsClaimed)
+	})
 }
 
 func TestSweepUnclaimed(t *testing.T) {
@@ -353,4 +384,52 @@ func TestSweepUnclaimed(t *testing.T) {
 	assert.True(t, campaigns[1].Drops[0].IsClaimed)
 	assert.True(t, campaigns[1].Drops[1].IsClaimed)
 	assert.False(t, campaigns[2].Drops[0].IsClaimed, "Upcoming campaign drop must remain unclaimed")
+
+	t.Run("options filter excluded games, drops and unclaimable cache", func(t *testing.T) {
+		camps := []DropsCampaign{
+			{
+				ID:       "camp-ex-game",
+				Name:     "Excluded Game Camp",
+				Game:     model.NewGame("g-ex", "Excluded Game", "ex-game"),
+				StartsAt: now.Add(-2 * time.Hour),
+				EndsAt:   now.Add(2 * time.Hour),
+				Valid:    true,
+				Linked:   true,
+				Drops: []TimedDrop{
+					{ID: "d-ex-1", Name: "Drop 1", ClaimID: "c1", RequiredMinutes: 10, CurrentMinutes: 10},
+				},
+			},
+			{
+				ID:       "camp-ex-drop",
+				Name:     "Allowed Game",
+				Game:     model.NewGame("g-ok", "Allowed Game", "ok-game"),
+				StartsAt: now.Add(-2 * time.Hour),
+				EndsAt:   now.Add(2 * time.Hour),
+				Valid:    true,
+				Linked:   true,
+				Drops: []TimedDrop{
+					{ID: "d-ex-drop", Name: "Excluded Cosmetic Item", ClaimID: "c2", RequiredMinutes: 10, CurrentMinutes: 10},
+					{ID: "d-cached", Name: "Cached Unclaimable", ClaimID: "c3", RequiredMinutes: 10, CurrentMinutes: 10},
+					{ID: "d-ok", Name: "Eligible Reward", ClaimID: "c4", RequiredMinutes: 10, CurrentMinutes: 10},
+				},
+			},
+		}
+
+		cache := map[string]time.Time{
+			"d-cached": now.Add(30 * time.Minute),
+		}
+
+		c, e := SweepUnclaimed(
+			context.Background(), client, 12345, camps, now, nil,
+			WithSweepExclude([]string{"Excluded Game"}),
+			WithSweepDropExclude([]string{"Cosmetic"}),
+			WithSweepUnclaimableCache(cache),
+		)
+		require.Empty(t, e)
+		assert.Equal(t, 1, c)
+		assert.False(t, camps[0].Drops[0].IsClaimed, "Excluded game drop must not be claimed")
+		assert.False(t, camps[1].Drops[0].IsClaimed, "Excluded keyword drop must not be claimed")
+		assert.False(t, camps[1].Drops[1].IsClaimed, "Cached unclaimable drop must not be claimed")
+		assert.True(t, camps[1].Drops[2].IsClaimed, "Eligible drop must be claimed")
+	})
 }
