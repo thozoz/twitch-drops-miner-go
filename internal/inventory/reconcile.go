@@ -13,7 +13,7 @@ import (
 // If there is no active drop session (DropCurrentSession is null), it returns ("", 0, false, nil).
 // If a drop session is active, it returns the drop ID, current minutes watched, ok=true, and nil error.
 func FetchCurrentDropProgress(ctx context.Context, client *gql.Client, channelID string) (dropID string, currentMinutes int, ok bool, err error) {
-	data, err := client.Do(ctx, "DropCurrentSessionContext", map[string]any{"channelID": channelID})
+	data, err := client.Do(ctx, "DropCurrentSessionContext", map[string]any{"channelLogin": channelID, "channelID": channelID})
 	if err != nil {
 		return "", 0, false, err
 	}

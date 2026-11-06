@@ -324,10 +324,16 @@ func (c DropsCampaign) FirstEarnableDrop(now time.Time, channel *model.Channel, 
 	}
 
 	pChain := c.preconditionsChain()
+	var best *TimedDrop
 	for i := range c.Drops {
 		if c.dropBaseCanEarn(c.Drops[i], now, pChain, dropExclude) {
-			return &c.Drops[i], true
+			if best == nil || c.Drops[i].RequiredMinutes < best.RequiredMinutes {
+				best = &c.Drops[i]
+			}
 		}
+	}
+	if best != nil {
+		return best, true
 	}
 	return nil, false
 }

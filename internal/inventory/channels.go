@@ -164,6 +164,11 @@ func ResolveCandidates(ctx context.Context, client *gql.Client, campaign DropsCa
 		})
 	}
 
+	// Sort directory channels by viewers descending (highest-viewer channel first)
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return candidates[i].Viewers > candidates[j].Viewers
+	})
+
 	return candidates, nil
 }
 

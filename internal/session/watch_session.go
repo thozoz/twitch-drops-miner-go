@@ -288,13 +288,25 @@ func (s *WatchSession) Run(ctx context.Context, campaign inventory.DropsCampaign
 					return ErrNoProgress
 				}
 
-				dropID, currentMinutes, ok, err := inventory.FetchCurrentDropProgress(gctx, s.gqlClient, ch.ID)
+				dropID, currentMinutes, ok, err := inventory.FetchCurrentDropProgress(gctx, s.gqlClient, ch.Login)
 				if err != nil {
 					s.logger.Warn("failed to fetch current drop progress via GQL", "error", err)
 				} else if ok {
 					s.mu.Lock()
 					var shouldClaim bool
 					var changed bool
+					if s.activeDrop != nil && s.activeDrop.ID != dropID {
+						for i := range campaign.Drops {
+							if campaign.Drops[i].ID == dropID {
+								s.logger.Info("switching active drop to match server session",
+									slog.String("from", s.activeDrop.Name),
+									slog.String("to", campaign.Drops[i].Name),
+								)
+								s.activeDrop = &campaign.Drops[i]
+								break
+							}
+						}
+					}
 					if s.activeDrop != nil && s.activeDrop.ID == dropID {
 						changed = inventory.ReconcileMinutes(s.activeDrop, currentMinutes, s.logger)
 						if changed {
@@ -368,6 +380,18 @@ func (s *WatchSession) Run(ctx context.Context, campaign inventory.DropsCampaign
 						s.mu.Lock()
 						var shouldClaim bool
 						var changed bool
+						if s.activeDrop != nil && s.activeDrop.ID != payload.DropID {
+							for i := range campaign.Drops {
+							if campaign.Drops[i].ID == payload.DropID {
+								s.logger.Info("switching active drop to match pubsub drop-progress",
+									slog.String("from", s.activeDrop.Name),
+									slog.String("to", campaign.Drops[i].Name),
+								)
+								s.activeDrop = &campaign.Drops[i]
+								break
+							}
+						}
+					}
 						if s.activeDrop != nil && s.activeDrop.ID == payload.DropID {
 							if payload.DropInstanceID != "" {
 								s.activeDrop.ClaimID = payload.DropInstanceID
@@ -517,7 +541,7 @@ func (s *WatchSession) claimAndAdvance(ctx context.Context, campaign *inventory.
 	}
 
 	for i := 0; i < s.confirmRetries; i++ {
-		dropID, _, ok, err := inventory.FetchCurrentDropProgress(ctx, s.gqlClient, ch.ID)
+		dropID, _, ok, err := inventory.FetchCurrentDropProgress(ctx, s.gqlClient, ch.Login)
 		if err == nil && (!ok || dropID != activeDrop.ID) {
 			break
 		}
