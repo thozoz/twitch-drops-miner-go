@@ -289,7 +289,7 @@ func TestWatcher_HeaderHygieneAndSecurity(t *testing.T) {
 
 	httpClient := resty.New().SetHostURL(server.URL)
 	gqlClient := gql.NewClient(reg, nil, nil, httpClient, gql.WithMinRetryDelay(1*time.Millisecond))
-	
+
 	// Create identity with sensitive credentials
 	ident := &mockIdentity{
 		clientID:    "client_id_secret",
@@ -329,5 +329,3 @@ func TestWatcher_HeaderHygieneAndSecurity(t *testing.T) {
 	assert.False(t, leakDetected, "sensitive headers must not be sent to Usher or CDN")
 	mu.Unlock()
 }
-
-

@@ -49,13 +49,13 @@ func setupMockServers(t *testing.T) (
 	*testServerState,
 ) {
 	state := &testServerState{
-		claimCalls:      make([]string, 0),
-		beaconChannels:  make(map[string]int),
-		currentDropID:   "drop-1",
-		currentMinutes:  0,
-		hasActiveDrop:   true,
-		claimStatus:     "ELIGIBLE_FOR_ALL",
-		wsConnections:   make([]*websocket.Conn, 0),
+		claimCalls:     make([]string, 0),
+		beaconChannels: make(map[string]int),
+		currentDropID:  "drop-1",
+		currentMinutes: 0,
+		hasActiveDrop:  true,
+		claimStatus:    "ELIGIBLE_FOR_ALL",
+		wsConnections:  make([]*websocket.Conn, 0),
 	}
 
 	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
