@@ -3,6 +3,8 @@ package inventory
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -139,4 +141,40 @@ func TestReconcile_FetchCurrentDropProgress(t *testing.T) {
 		assert.Empty(t, dropID)
 		assert.Equal(t, 0, minutes)
 	})
+}
+
+func TestReconcile_FetchCurrentDropProgress_ChannelLoginRegression(t *testing.T) {
+	var capturedVars map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var op struct {
+			OperationName string         `json:"operationName"`
+			Variables     map[string]any `json:"variables"`
+		}
+		_ = json.Unmarshal(body, &op)
+		if op.OperationName == "DropCurrentSessionContext" {
+			capturedVars = op.Variables
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"data":{"currentUser":{"dropCurrentSession":{"dropID":"drop-xyz","currentMinutesWatched":10}}}}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	reg, _, err := gql.LoadRegistry("")
+	require.NoError(t, err)
+
+	httpClient := resty.New().SetHostURL(server.URL)
+	client := gql.NewClient(reg, nil, nil, httpClient, gql.WithMinRetryDelay(1*time.Millisecond))
+
+	_, _, _, err = FetchCurrentDropProgress(context.Background(), client, "mrg1ggio")
+	require.NoError(t, err)
+
+	require.NotNil(t, capturedVars)
+	assert.Contains(t, capturedVars, "channelLogin", "GQL query variable must be channelLogin")
+	assert.NotContains(t, capturedVars, "channelID", "GQL query variable must NOT be channelID")
+	assert.Equal(t, "mrg1ggio", capturedVars["channelLogin"])
 }
