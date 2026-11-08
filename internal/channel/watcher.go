@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -17,17 +18,15 @@ import (
 
 const (
 	defaultWatchInterval = 20 * time.Second
-	maxPlaylistBodyBytes = 1024 * 1024 // 1MB playlist body limit
+	maxPlaylistBodyBytes = 1024 * 1024 // 1MB
 )
 
 var (
-	// ErrStreamOffline is returned when usher or media playlist reports channel offline or 404
-	ErrStreamOffline = errors.New("stream is offline or playlist not found")
-	// ErrTerminalWatcher is returned when watching fails with a fatal/unrecoverable error
+	ErrStreamOffline   = errors.New("stream is offline or playlist not found")
 	ErrTerminalWatcher = errors.New("watcher encountered a terminal error")
 )
 
-// Watcher manages a single-channel-at-a-time HLS HEAD beacon loop.
+// Watcher manages a single-channel HLS HEAD beacon loop.
 type Watcher struct {
 	gqlClient  *gql.Client
 	httpClient *resty.Client
@@ -36,26 +35,23 @@ type Watcher struct {
 	userID     int
 	interval   time.Duration
 
-	mu     sync.Mutex
-	cancel context.CancelFunc
-	done   chan struct{}
-	err    error
+	// lifecycleMu protects start/stop/cancellation
+	lifecycleMu sync.Mutex
+	cancel      context.CancelFunc
+	done        chan struct{}
 
-	// OnBeacon is an optional callback invoked after every beacon attempt.
-	// Must be concurrency-safe.
+	// stateMu protects err and OnBeacon callback
+	stateMu  sync.RWMutex
+	err      error
 	OnBeacon func(seq int, success bool, err error)
 
-	// tickerChanProvider allows unit tests to inject custom tick channels.
 	tickerChanProvider func(d time.Duration) (<-chan time.Time, func())
 }
 
-// NewWatcher constructs a new single-channel Watcher.
 func NewWatcher(gqlClient *gql.Client, httpClient *resty.Client, identity gql.Identity, userID int) *Watcher {
-	// Create an isolated http.Client without default headers, auth or cookies for HLS Usher/CDN
 	hlsClient := &http.Client{
 		Timeout: 10 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			// Strip sensitive headers on redirect
 			req.Header.Del("Authorization")
 			req.Header.Del("Cookie")
 			req.Header.Del("Client-Id")
@@ -81,23 +77,33 @@ func NewWatcher(gqlClient *gql.Client, httpClient *resty.Client, identity gql.Id
 	}
 }
 
-// Start begins watching the specified channel using HLS segment HEAD requests.
-// Structural single-channel guarantee (WATCH-03): if a previous watch loop is running,
-// Start cancels it and blocks until it fully terminates before initiating the new session.
-func (w *Watcher) Start(ctx context.Context, ch model.Channel) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+func (w *Watcher) SetOnBeacon(cb func(seq int, success bool, err error)) {
+	w.stateMu.Lock()
+	defer w.stateMu.Unlock()
+	w.OnBeacon = cb
+}
 
-	// Stop prior watch loop if running and wait for full termination
+func (w *Watcher) getOnBeacon() func(seq int, success bool, err error) {
+	w.stateMu.RLock()
+	defer w.stateMu.RUnlock()
+	return w.OnBeacon
+}
+
+func (w *Watcher) Start(ctx context.Context, ch model.Channel) error {
+	w.lifecycleMu.Lock()
+	defer w.lifecycleMu.Unlock()
+
 	if w.cancel != nil {
 		w.cancel()
 		<-w.done
 		w.cancel = nil
 		w.done = nil
-		w.err = nil
 	}
 
-	// Validate stream and obtain playback token before beaconing
+	w.stateMu.Lock()
+	w.err = nil
+	w.stateMu.Unlock()
+
 	tokenVal, tokenSig, err := FetchPlaybackAccessToken(ctx, w.gqlClient, ch.Login)
 	if err != nil {
 		return fmt.Errorf("cannot watch channel %s without playback access token: %w", ch.Login, err)
@@ -107,47 +113,39 @@ func (w *Watcher) Start(ctx context.Context, ch model.Channel) error {
 	done := make(chan struct{})
 	w.cancel = cancel
 	w.done = done
-	w.err = nil
 
 	go w.loop(childCtx, ch, tokenVal, tokenSig, done)
 	return nil
 }
 
-// Stop terminates any active watch loop and blocks until it has cleanly exited.
 func (w *Watcher) Stop() {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	w.lifecycleMu.Lock()
+	defer w.lifecycleMu.Unlock()
 
 	if w.cancel != nil {
 		w.cancel()
 		<-w.done
 		w.cancel = nil
 		w.done = nil
-		w.err = nil
 	}
 }
 
-// Err returns the terminal error if the watcher loop exited with failure.
 func (w *Watcher) Err() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	w.stateMu.RLock()
+	defer w.stateMu.RUnlock()
 	return w.err
 }
 
-// Done returns a channel that is closed when the current watch loop terminates.
 func (w *Watcher) Done() <-chan struct{} {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	w.lifecycleMu.Lock()
+	defer w.lifecycleMu.Unlock()
 	return w.done
 }
 
-func (w *Watcher) loop(ctx context.Context, ch model.Channel, initialToken, initialSig string, done chan struct{}) {
+func (w *Watcher) loop(ctx context.Context, ch model.Channel, tokenVal, tokenSig string, done chan struct{}) {
 	defer close(done)
 
-	tokenVal := initialToken
-	tokenSig := initialSig
 	mediaURL := ""
-
 	var tickCh <-chan time.Time
 	var stopTicker func()
 
@@ -161,84 +159,66 @@ func (w *Watcher) loop(ctx context.Context, ch model.Channel, initialToken, init
 	defer stopTicker()
 
 	seq := 1
-
-	// Initial cycle immediately
-	mediaURL, err := w.watchCycle(ctx, ch, tokenVal, tokenSig, mediaURL)
-	if err != nil {
-		if errors.Is(err, ErrStreamOffline) || errors.Is(err, ErrPlaylistJSON) {
-			w.setErr(err)
-			w.notifyBeacon(0, false, err)
+	for {
+		if ctx.Err() != nil {
 			return
 		}
-		// Refresh token once if unauthorized or expired
-		if isAuthError(err) {
-			newVal, newSig, rerr := FetchPlaybackAccessToken(ctx, w.gqlClient, ch.Login)
-			if rerr == nil {
-				tokenVal = newVal
-				tokenSig = newSig
-				mediaURL, err = w.watchCycle(ctx, ch, tokenVal, tokenSig, "")
+
+		var cycleErr error
+		mediaURL, cycleErr = w.watchCycle(ctx, ch, tokenVal, tokenSig, mediaURL)
+		if ctx.Err() != nil {
+			return
+		}
+
+		if cycleErr != nil {
+			if isAuthError(cycleErr) {
+				newVal, newSig, rerr := FetchPlaybackAccessToken(ctx, w.gqlClient, ch.Login)
+				if rerr == nil {
+					tokenVal = newVal
+					tokenSig = newSig
+					mediaURL, cycleErr = w.watchCycle(ctx, ch, tokenVal, tokenSig, "")
+				} else {
+					cycleErr = fmt.Errorf("%w: playback token refresh failed: %v", ErrTerminalWatcher, rerr)
+				}
 			}
 		}
-	}
-	w.notifyBeacon(seq, err == nil, err)
-	if err != nil && isFatal(err) {
-		w.setErr(err)
-		return
-	}
-	seq++
 
-	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		success := cycleErr == nil
+		w.notifyBeacon(seq, success, cycleErr)
+
+		if cycleErr != nil && isFatal(cycleErr) {
+			w.setErr(cycleErr)
+			return
+		}
+
+		seq++
+
 		select {
 		case <-ctx.Done():
 			return
 		case <-tickCh:
 			drainTicker(tickCh)
-			if ctx.Err() != nil {
-				return
-			}
-			var cycleErr error
-			mediaURL, cycleErr = w.watchCycle(ctx, ch, tokenVal, tokenSig, mediaURL)
-			if cycleErr != nil {
-				if errors.Is(cycleErr, ErrStreamOffline) || errors.Is(cycleErr, ErrPlaylistJSON) {
-					w.setErr(cycleErr)
-					w.notifyBeacon(seq, false, cycleErr)
-					return
-				}
-				if isAuthError(cycleErr) {
-					newVal, newSig, rerr := FetchPlaybackAccessToken(ctx, w.gqlClient, ch.Login)
-					if rerr == nil {
-						tokenVal = newVal
-						tokenSig = newSig
-						mediaURL, cycleErr = w.watchCycle(ctx, ch, tokenVal, tokenSig, "")
-					}
-				}
-			}
-			w.notifyBeacon(seq, cycleErr == nil, cycleErr)
-			if cycleErr != nil && isFatal(cycleErr) {
-				w.setErr(cycleErr)
-				return
-			}
-			seq++
 		}
 	}
 }
 
 func (w *Watcher) setErr(err error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	w.stateMu.Lock()
+	defer w.stateMu.Unlock()
 	w.err = err
 }
 
 func (w *Watcher) notifyBeacon(seq int, success bool, err error) {
-	w.mu.Lock()
-	cb := w.OnBeacon
-	w.mu.Unlock()
+	cb := w.getOnBeacon()
 	if cb != nil {
 		cb(seq, success, err)
 	}
 }
 
-// watchCycle executes one HLS check: master playlist -> media playlist -> HEAD segments
 func (w *Watcher) watchCycle(ctx context.Context, ch model.Channel, tokenVal, tokenSig, cachedMediaURL string) (string, error) {
 	mediaURL := cachedMediaURL
 	var err error
@@ -252,7 +232,6 @@ func (w *Watcher) watchCycle(ctx context.Context, ch model.Channel, tokenVal, to
 
 	segments, err := w.fetchMediaSegments(ctx, mediaURL)
 	if err != nil {
-		// Reacquire master playlist once if media playlist returned 404/403/401
 		if isRefreshableMediaError(err) {
 			var mErr error
 			mediaURL, mErr = w.fetchMasterPlaylist(ctx, ch.Login, tokenVal, tokenSig)
@@ -266,7 +245,6 @@ func (w *Watcher) watchCycle(ctx context.Context, ch model.Channel, tokenVal, to
 		}
 	}
 
-	// HEAD all listed segments
 	for _, segURL := range segments {
 		if ctx.Err() != nil {
 			return mediaURL, ctx.Err()
@@ -285,95 +263,64 @@ func (w *Watcher) fetchMasterPlaylist(ctx context.Context, channelLogin, tokenVa
 		masterBase = strings.TrimSuffix(w.httpClient.HostURL, "/") + "/api/channel/hls/" + channelLogin + ".m3u8"
 	}
 
-	q := url.Values{}
-	q.Set("sig", tokenSig)
-	q.Set("token", tokenVal)
-	q.Set("allow_source", "true")
-	q.Set("allow_audio_only", "true")
-	q.Set("fast_bread", "true")
-	q.Set("player_backend", "mediaplayer")
+	q := url.Values{
+		"sig":            {tokenSig},
+		"token":          {tokenVal},
+		"allow_source":   {"true"},
+		"allow_audio_only": {"true"},
+		"fast_bread":     {"true"},
+		"player_backend": {"mediaplayer"},
+	}
 
-	masterURL := masterBase + "?" + q.Encode()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, masterURL, nil)
+	body, finalURL, err := w.fetchPlaylistBody(ctx, masterBase+"?"+q.Encode())
 	if err != nil {
-		return "", sanitizeErr(err)
+		return "", err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0")
-	req.Header.Set("Accept", "application/x-mpegURL, application/vnd.apple.mpegurl, application/json, text/plain")
-
-	resp, err := w.hlsClient.Do(req)
-	if err != nil {
-		return "", sanitizeErr(err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return "", ErrStreamOffline
-	}
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return "", fmt.Errorf("master playlist forbidden (%d)", resp.StatusCode)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("master playlist HTTP %d", resp.StatusCode)
-	}
-
-	lr := http.MaxBytesReader(nil, resp.Body, maxPlaylistBodyBytes)
-	var sb strings.Builder
-	buf := make([]byte, 4096)
-	for {
-		n, err := lr.Read(buf)
-		if n > 0 {
-			sb.Write(buf[:n])
-		}
-		if err != nil {
-			break
-		}
-	}
-
-	baseParsed := resp.Request.URL
-	return ParseMasterPlaylist(baseParsed, sb.String())
+	return ParseMasterPlaylist(finalURL, body)
 }
 
 func (w *Watcher) fetchMediaSegments(ctx context.Context, mediaURL string) ([]string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, mediaURL, nil)
+	body, finalURL, err := w.fetchPlaylistBody(ctx, mediaURL)
 	if err != nil {
-		return nil, sanitizeErr(err)
+		return nil, err
+	}
+	return ParseMediaPlaylist(finalURL, body)
+}
+
+func (w *Watcher) fetchPlaylistBody(ctx context.Context, targetURL string) (string, *url.URL, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return "", nil, sanitizeErr(err)
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0")
 	req.Header.Set("Connection", "close")
 
 	resp, err := w.hlsClient.Do(req)
 	if err != nil {
-		return nil, sanitizeErr(err)
+		return "", nil, sanitizeErr(err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, ErrStreamOffline
+		return "", nil, ErrStreamOffline
 	}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return nil, fmt.Errorf("media playlist forbidden (%d)", resp.StatusCode)
+		return "", nil, fmt.Errorf("playlist forbidden (%d)", resp.StatusCode)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("media playlist HTTP %d", resp.StatusCode)
+		return "", nil, fmt.Errorf("playlist HTTP %d", resp.StatusCode)
 	}
 
-	lr := http.MaxBytesReader(nil, resp.Body, maxPlaylistBodyBytes)
-	var sb strings.Builder
-	buf := make([]byte, 4096)
-	for {
-		n, err := lr.Read(buf)
-		if n > 0 {
-			sb.Write(buf[:n])
-		}
-		if err != nil {
-			break
-		}
+	lr := io.LimitReader(resp.Body, maxPlaylistBodyBytes+1)
+	bodyBytes, err := io.ReadAll(lr)
+	if err != nil {
+		return "", nil, fmt.Errorf("reading playlist failed: %w", sanitizeErr(err))
+	}
+	if int64(len(bodyBytes)) > maxPlaylistBodyBytes {
+		return "", nil, fmt.Errorf("%w: playlist exceeded 1MB limit", ErrTerminalWatcher)
 	}
 
-	baseParsed := resp.Request.URL
-	return ParseMediaPlaylist(baseParsed, sb.String())
+	return string(bodyBytes), resp.Request.URL, nil
 }
 
 func (w *Watcher) headSegment(ctx context.Context, segURL string) error {
@@ -390,7 +337,7 @@ func (w *Watcher) headSegment(ctx context.Context, segURL string) error {
 	}
 	resp.Body.Close()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("segment HEAD returned HTTP %d", resp.StatusCode)
 	}
 	return nil
@@ -400,15 +347,12 @@ func sanitizeErr(err error) error {
 	if err == nil {
 		return nil
 	}
-	// Strip raw URL and query parameters to prevent secret leakage in error messages
-	msg := err.Error()
-	if idx := strings.Index(msg, "token="); idx != -1 {
-		msg = msg[:idx] + "token=[REDACTED]..."
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		urlErr.URL = "[REDACTED]"
+		return urlErr
 	}
-	if idx := strings.Index(msg, "sig="); idx != -1 {
-		msg = msg[:idx] + "sig=[REDACTED]..."
-	}
-	return errors.New(msg)
+	return err
 }
 
 func isAuthError(err error) bool {
@@ -423,6 +367,9 @@ func isRefreshableMediaError(err error) bool {
 	if err == nil {
 		return false
 	}
+	if errors.Is(err, ErrStreamOffline) {
+		return true
+	}
 	msg := err.Error()
 	return strings.Contains(msg, "404") || strings.Contains(msg, "403") || strings.Contains(msg, "401")
 }
@@ -431,7 +378,7 @@ func isFatal(err error) bool {
 	if err == nil {
 		return false
 	}
-	return errors.Is(err, ErrStreamOffline) || errors.Is(err, ErrPlaylistJSON) || errors.Is(err, ErrTerminalWatcher)
+	return errors.Is(err, ErrStreamOffline) || errors.Is(err, ErrPlaylistJSON) || errors.Is(err, ErrMalformedPlaylist) || errors.Is(err, ErrTerminalWatcher)
 }
 
 func drainTicker(c <-chan time.Time) {

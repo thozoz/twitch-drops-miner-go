@@ -48,6 +48,10 @@ func ParseMasterPlaylist(baseURL *url.URL, body string) (string, error) {
 		}
 	}
 
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("%w: read error: %v", ErrMalformedPlaylist, err)
+	}
+
 	if lastVariantURI == "" {
 		return "", fmt.Errorf("%w: no stream variants found in master playlist", ErrMalformedPlaylist)
 	}
@@ -83,6 +87,10 @@ func ParseMediaPlaylist(baseURL *url.URL, body string) ([]string, error) {
 		segments = append(segments, resolved)
 	}
 
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("%w: read error: %v", ErrMalformedPlaylist, err)
+	}
+
 	if len(segments) == 0 {
 		return nil, fmt.Errorf("%w: no segments found in media playlist", ErrMalformedPlaylist)
 	}
@@ -93,7 +101,7 @@ func ParseMediaPlaylist(baseURL *url.URL, body string) ([]string, error) {
 func resolveURL(baseURL *url.URL, rawURI string) (string, error) {
 	parsed, err := url.Parse(rawURI)
 	if err != nil {
-		return "", fmt.Errorf("%w: invalid URI %q: %v", ErrMalformedPlaylist, rawURI, err)
+		return "", fmt.Errorf("%w: invalid URI", ErrMalformedPlaylist)
 	}
 
 	var resolved *url.URL
@@ -101,14 +109,20 @@ func resolveURL(baseURL *url.URL, rawURI string) (string, error) {
 		resolved = parsed
 	} else {
 		if baseURL == nil {
-			return "", fmt.Errorf("%w: relative URI %q without base URL", ErrMalformedPlaylist, rawURI)
+			return "", fmt.Errorf("%w: relative URI without base URL", ErrMalformedPlaylist)
 		}
 		resolved = baseURL.ResolveReference(parsed)
 	}
 
 	scheme := strings.ToLower(resolved.Scheme)
 	if scheme != "http" && scheme != "https" {
-		return "", fmt.Errorf("%w: unsupported scheme %q", ErrMalformedPlaylist, resolved.Scheme)
+		return "", fmt.Errorf("%w: unsupported scheme", ErrMalformedPlaylist)
+	}
+	if resolved.Host == "" {
+		return "", fmt.Errorf("%w: missing host", ErrMalformedPlaylist)
+	}
+	if resolved.User != nil {
+		return "", fmt.Errorf("%w: userinfo not allowed", ErrMalformedPlaylist)
 	}
 
 	return resolved.String(), nil
