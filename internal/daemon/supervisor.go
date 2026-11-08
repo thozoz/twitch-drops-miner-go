@@ -91,10 +91,8 @@ type Supervisor struct {
 	// channelCooldown tracks channels that yielded ErrNoProgress to temporarily avoid reselecting them
 	channelCooldown map[string]time.Time
 
-	// lastProgress tracks the last time the drop progress changed
-	lastProgress map[string]time.Time
-
 	// enableBadgesEmotes mirrors the enable_badges_emotes config setting at the
+	// moment the daemon started. Unlike priority/exclude it is never mutated
 	// live -- SplitEligible only runs once per selection cycle inside
 	// fetchInventory, and threading a live update through would need a new IPC
 	// method and a second mutable field with its own lock. A config change
@@ -106,9 +104,11 @@ type Supervisor struct {
 	exclude     []string
 	dropExclude []string
 
-	statusMu   sync.RWMutex
-	status     ipc.StatusResult
-	errorCount int
+	statusMu          sync.RWMutex
+	status            ipc.StatusResult
+	errorCount        int
+	progressDropID    string
+	progressHighWater int
 }
 
 // NewSupervisor creates a Supervisor with injected fetch and resolve closures.
@@ -231,30 +231,6 @@ func (s *Supervisor) coolChannel(login string, d time.Duration) {
 	s.channelCooldown[login] = time.Now().Add(d)
 }
 
-func (s *Supervisor) updateProgressTime(dropName string) {
-	if s.lastProgress == nil {
-		s.lastProgress = make(map[string]time.Time)
-	}
-	s.lastProgress[dropName] = time.Now()
-}
-
-func (s *Supervisor) getLastProgressTime(dropName string) time.Time {
-	if t, ok := s.lastProgress[dropName]; ok {
-		return t
-	}
-	return time.Now()
-}
-
-func (s *Supervisor) getCurrentMinutes(dropName string) int {
-	// Minimal implementation - assumes minutes are managed via status object
-	// For full regression, this needs access to current drop progress.
-	// Since we are in Supervisor, s.status holds CurrentMinutes.
-	if s.status.ActiveDrop == dropName {
-		return s.status.CurrentMinutes
-	}
-	return 0
-}
-
 // Run runs the supervisor loop: select campaign -> resolve channel -> watch -> repeat.
 func (s *Supervisor) Run(ctx context.Context) error {
 	if s.runWatch == nil {
@@ -349,18 +325,20 @@ func (s *Supervisor) Run(ctx context.Context) error {
 
 		s.statusMu.Lock()
 		s.status = ipc.StatusResult{
-			Status:          "watching",
-			ActiveCampaign:  selected.Name,
-			ActiveGame:      selected.Game.Name,
-			WatchingChannel: ch.Name(),
-			ActiveDrop:      initialDrop.Name,
-			CurrentMinutes:  initialDrop.CurrentMinutes,
-			RequiredMinutes: initialDrop.RequiredMinutes,
-			ProgressPercent: initialDrop.Progress() * 100,
-			ETASeconds:      int64(initialDrop.RemainingMinutes()) * 60,
-			LastSyncTime:    time.Now(),
-			LastProgressTime: s.getLastProgressTime(initialDrop.Name),
+			Status:           "watching",
+			ActiveCampaign:   selected.Name,
+			ActiveGame:       selected.Game.Name,
+			WatchingChannel:  ch.Name(),
+			ActiveDrop:       initialDrop.Name,
+			CurrentMinutes:   initialDrop.CurrentMinutes,
+			RequiredMinutes:  initialDrop.RequiredMinutes,
+			ProgressPercent:  initialDrop.Progress() * 100,
+			ETASeconds:       int64(initialDrop.RemainingMinutes()) * 60,
+			LastSyncTime:     time.Now(),
+			LastProgressTime: time.Now(),
 		}
+		s.progressDropID = initialDrop.ID
+		s.progressHighWater = initialDrop.CurrentMinutes
 		s.statusMu.Unlock()
 
 		drop, runErr := s.runWatch(ctx, *selected, *ch)
@@ -380,22 +358,21 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			s.coolChannel(ch.Login, 10*time.Minute)
 		}
 
+		if runErr != nil {
+			s.statusMu.Lock()
+			s.status.Status = "retrying"
+			s.statusMu.Unlock()
+		}
+
 		if drop != nil {
 			s.statusMu.Lock()
+			s.recordProgressLocked(drop)
 			s.status.ActiveDrop = drop.Name
 			s.status.CurrentMinutes = drop.CurrentMinutes
 			s.status.RequiredMinutes = drop.RequiredMinutes
 			s.status.ProgressPercent = drop.Progress() * 100
 			s.status.ETASeconds = int64(drop.RemainingMinutes()) * 60
 			s.status.LastSyncTime = time.Now()
-			if drop.CurrentMinutes > s.getCurrentMinutes(drop.Name) {
-				s.updateProgressTime(drop.Name)
-			}
-			s.status.LastProgressTime = s.getLastProgressTime(drop.Name)
-			
-			if time.Since(s.status.LastProgressTime) > 5*time.Minute {
-				s.status.Status = "stalled"
-			}
 			s.statusMu.Unlock()
 		}
 
@@ -420,6 +397,9 @@ func (s *Supervisor) Status(ctx context.Context) (ipc.StatusResult, error) {
 	defer s.statusMu.RUnlock()
 
 	st := s.status
+	if st.Status == "watching" && !st.LastProgressTime.IsZero() && time.Since(st.LastProgressTime) >= 5*time.Minute {
+		st.Status = "stalled"
+	}
 	if st.Status == "" {
 		st.Status = "starting"
 	}
@@ -616,6 +596,22 @@ func removeGames(list, drop []string) []string {
 	return out
 }
 
+// recordProgressLocked ignores repeated/decreasing samples; a new drop gets a grace window.
+func (s *Supervisor) recordProgressLocked(drop *inventory.TimedDrop) {
+	if s.progressDropID == "" {
+		s.progressDropID = drop.ID
+		s.progressHighWater = s.status.CurrentMinutes
+	}
+	if s.progressDropID != drop.ID {
+		s.progressDropID = drop.ID
+		s.progressHighWater = drop.CurrentMinutes
+		s.status.LastProgressTime = time.Now()
+	} else if drop.CurrentMinutes > s.progressHighWater {
+		s.progressHighWater = drop.CurrentMinutes
+		s.status.LastProgressTime = time.Now()
+	}
+}
+
 // UpdateDropProgress updates the live active drop progress in the supervisor status.
 func (s *Supervisor) UpdateDropProgress(drop *inventory.TimedDrop) {
 	if drop == nil {
@@ -623,6 +619,7 @@ func (s *Supervisor) UpdateDropProgress(drop *inventory.TimedDrop) {
 	}
 	s.statusMu.Lock()
 	defer s.statusMu.Unlock()
+	s.recordProgressLocked(drop)
 	s.status.ActiveDrop = drop.Name
 	s.status.CurrentMinutes = drop.CurrentMinutes
 	s.status.RequiredMinutes = drop.RequiredMinutes

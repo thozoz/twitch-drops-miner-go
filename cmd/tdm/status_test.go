@@ -98,6 +98,15 @@ func TestFormatStatus(t *testing.T) {
 	})
 }
 
+func TestFormatStatus_StalledWarning(t *testing.T) {
+	out, err := formatStatus(ipc.StatusResult{Status: "stalled", CurrentMinutes: 2, RequiredMinutes: 30, LastProgressTime: time.Now().Add(-6 * time.Minute)}, false)
+	require.NoError(t, err)
+	assert.Contains(t, out, "Status: stalled")
+	assert.Contains(t, out, "at least 5 minutes")
+	assert.Contains(t, out, "notifications do not prove progress")
+	assert.Contains(t, out, "Last minute increase:")
+}
+
 func TestStatusCmd_DialFailure(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", tempDir)

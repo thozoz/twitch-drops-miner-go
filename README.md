@@ -19,11 +19,13 @@ This repository is a lightweight, headless-first reimplementation of [DevilXD/Tw
 
 ### How It Works:
 
-Every ~59 seconds, the application simulates watch presence for a selected stream by sending lightweight Spade tracking beacons and fetching drop metadata. This is sufficient to advance drop progression on Twitch servers while completely bypassing the need to download video or audio stream data (0 KB of video downloaded).
+Every ~20 seconds, the application fetches the selected stream's HLS media playlist and sends HEAD requests for its listed segments, without downloading video or audio bodies. Playback credentials and the master playlist are renewed when the stream URLs expire. A successful HEAD cycle confirms transport only; actual drop progress is read separately from Twitch's server-reported minutes.
 
 To keep channel states up-to-date and detect drop completions instantly, a WebSocket connection to Twitch PubSub is maintained (`user-drop-events.<user_id>`), backed by periodic GraphQL reconciliation.
 
 ---
+
+`tdm status` reports `stalled` if Twitch-reported minutes have not exceeded their previous high-water mark for 5 minutes in the current watch session. Repeated notifications and successful HEAD requests do not reset this timer. A genuine minute increase clears the warning; the 10-minute no-progress watchdog separately abandons the channel and cools it down temporarily.
 
 ### Features:
 
@@ -51,17 +53,17 @@ flowchart LR
 
     CLI -->|"JSON-RPC 2.0 · Unix socket / named pipe"| SEL
 
-    WS --> SPADE["Spade Watcher"]
+    WS --> HLS["HLS HEAD Watcher"]
     WS --> PS["PubSub Client"]
     WS --> GQL["GQL Engine"]
 
     subgraph EDGE["Twitch Edge"]
-        T1["Spade Beacon<br/>video-free"]
+        T1["HLS Playlists + Segment HEAD<br/>no media bodies"]
         T2["PubSub WS v1<br/>drop events"]
         T3["GQL<br/>authenticated"]
     end
 
-    SPADE -->|"~59s"| T1
+    HLS -->|"~20s"| T1
     PS --> T2
     GQL --> T3
 ```
@@ -315,7 +317,7 @@ Matching is case-sensitive on the exact Twitch category name, the same compariso
 | `tdm inventory list` | Lists all active, upcoming, and completed campaigns with minutes progress. |
 | `tdm inventory select` | Evaluates eligible campaigns against priority rules and prints next pick. |
 | `tdm inventory watch-decision` | Simulates channel selection logic for testing. |
-| `tdm channel watch <login>` | Connects to a specific channel directly to verify Spade beacon emission. |
+| `tdm channel watch <login>` | Connects to a specific channel directly to verify HLS playlist/segment HEAD transport (not proof of earned minutes). |
 
 ---
 
@@ -392,7 +394,7 @@ A path named through `--config` or `TDM_CONFIG` must exist — tdm reports an er
 ### Roadmap:
 
 - [x] Lightweight headless background daemon (`tdm start` / `tdm stop`)
-- [x] Zero-bandwidth Spade beacon watch presence (0 KB video data downloaded)
+- [x] HLS playlist + segment HEAD watch presence (no video/audio bodies downloaded)
 - [x] JSON-RPC 2.0 local control plane (Unix socket / Named pipe)
 - [x] Multi-platform Docker support & automated CI/CD releases
 - [ ] Embedded Web Dashboard (remote monitoring via web browser on LAN/VPS)
@@ -401,7 +403,7 @@ A path named through `--config` or `TDM_CONFIG` must exist — tdm reports an er
 
 ### Acknowledgements:
 
-Portions of this project's Twitch protocol models (Device Code Flow parameters, GQL operation mappings, rate limiting policies, Spade beacon payloads, and header structures) are ported from [DevilXD/TwitchDropsMiner](https://github.com/DevilXD/TwitchDropsMiner) (MIT License).
+Portions of this project's Twitch protocol models (Device Code Flow parameters, GQL operation mappings, rate limiting policies, HLS playlist/segment HEAD watch behavior, legacy Spade beacon payloads, and header structures) are ported from [DevilXD/TwitchDropsMiner](https://github.com/DevilXD/TwitchDropsMiner) (MIT License).
 
 Special thanks to **DevilXD** and all contributors to the original project. See [NOTICE](NOTICE) and [LICENSE](LICENSE) for details.
 
