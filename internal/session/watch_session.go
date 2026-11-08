@@ -245,6 +245,19 @@ func (s *WatchSession) Run(ctx context.Context, campaign inventory.DropsCampaign
 
 	g, gctx := errgroup.WithContext(ctx)
 
+	// Watcher loop monitoring: exit session if watcher terminates
+	g.Go(func() error {
+		select {
+		case <-gctx.Done():
+			return nil
+		case <-s.watcher.Done():
+			if err := s.watcher.Err(); err != nil {
+				return fmt.Errorf("watcher stopped with error: %w", err)
+			}
+			return errors.New("watcher stopped unexpectedly")
+		}
+	})
+
 	if s.pubsubClient != nil {
 		g.Go(func() error {
 			err := s.pubsubClient.Run(gctx)
@@ -288,7 +301,7 @@ func (s *WatchSession) Run(ctx context.Context, campaign inventory.DropsCampaign
 					return ErrNoProgress
 				}
 
-				dropID, currentMinutes, ok, err := inventory.FetchCurrentDropProgress(gctx, s.gqlClient, ch.ID)
+				dropID, currentMinutes, ok, err := inventory.FetchCurrentDropProgress(gctx, s.gqlClient, ch.Login)
 				if err != nil {
 					s.logger.Warn("failed to fetch current drop progress via GQL", "error", err)
 				} else if ok {
@@ -296,8 +309,9 @@ func (s *WatchSession) Run(ctx context.Context, campaign inventory.DropsCampaign
 					var shouldClaim bool
 					var changed bool
 					if s.activeDrop != nil && s.activeDrop.ID == dropID {
+						prevMinutes := s.activeDrop.CurrentMinutes
 						changed = inventory.ReconcileMinutes(s.activeDrop, currentMinutes, s.logger)
-						if changed {
+						if changed && s.activeDrop.CurrentMinutes > prevMinutes {
 							s.lastProgressAt = time.Now()
 						}
 						if s.activeDrop.CurrentMinutes >= s.activeDrop.RequiredMinutes {
@@ -372,8 +386,9 @@ func (s *WatchSession) Run(ctx context.Context, campaign inventory.DropsCampaign
 							if payload.DropInstanceID != "" {
 								s.activeDrop.ClaimID = payload.DropInstanceID
 							}
+							prevMinutes := s.activeDrop.CurrentMinutes
 							changed = inventory.ReconcileMinutes(s.activeDrop, payload.CurrentProgressMin, s.logger)
-							if changed {
+							if changed && s.activeDrop.CurrentMinutes > prevMinutes {
 								s.lastProgressAt = time.Now()
 							}
 							if s.activeDrop.CurrentMinutes >= s.activeDrop.RequiredMinutes {
@@ -517,7 +532,7 @@ func (s *WatchSession) claimAndAdvance(ctx context.Context, campaign *inventory.
 	}
 
 	for i := 0; i < s.confirmRetries; i++ {
-		dropID, _, ok, err := inventory.FetchCurrentDropProgress(ctx, s.gqlClient, ch.ID)
+		dropID, _, ok, err := inventory.FetchCurrentDropProgress(ctx, s.gqlClient, ch.Login)
 		if err == nil && (!ok || dropID != activeDrop.ID) {
 			break
 		}

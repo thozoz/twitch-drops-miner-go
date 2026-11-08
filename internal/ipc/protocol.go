@@ -35,6 +35,7 @@ type StatusResult struct {
 	ETASeconds      int64     `json:"eta_seconds"`
 	ErrorCount      int       `json:"error_count"`
 	LastSyncTime    time.Time `json:"last_sync_time"`
+	LastProgressTime time.Time `json:"last_progress_time"`
 }
 
 // PriorityAction defines the mutation or query action for priority games.

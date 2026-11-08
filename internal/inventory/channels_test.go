@@ -227,3 +227,83 @@ func TestResolve_GameMismatchFilteredOut(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, primary, "channel playing different game must not be chosen by ResolveChannel")
 }
+
+func TestResolveChannelWithCooldown(t *testing.T) {
+	onlineFixture, err := os.ReadFile("../../testdata/fixtures/gql_stream_info_online.json")
+	require.NoError(t, err)
+	offlineFixture, err := os.ReadFile("../../testdata/fixtures/gql_stream_info_offline.json")
+	require.NoError(t, err)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+
+		var raw json.RawMessage
+		_ = json.NewDecoder(r.Body).Decode(&raw)
+
+		var batchOps []struct {
+			OperationName string         `json:"operationName"`
+			Variables     map[string]any `json:"variables"`
+		}
+		if err := json.Unmarshal(raw, &batchOps); err == nil && len(batchOps) > 0 {
+			var batchResps []json.RawMessage
+			for _, op := range batchOps {
+				if op.Variables != nil && op.Variables["channel"] == "streamer_online" {
+					batchResps = append(batchResps, onlineFixture)
+				} else {
+					batchResps = append(batchResps, offlineFixture)
+				}
+			}
+			respBytes, _ := json.Marshal(batchResps)
+			_, _ = w.Write(respBytes)
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	reg, _, err := gql.LoadRegistry("")
+	require.NoError(t, err)
+
+	httpClient := resty.New().SetHostURL(server.URL)
+	gqlClient := gql.NewClient(reg, nil, nil, httpClient, gql.WithMinRetryDelay(1*time.Millisecond))
+
+	campaign := DropsCampaign{
+		ID:       "camp-acl",
+		Name:     "ACL Campaign",
+		Game:     model.NewGame("100", "Test Game", "test-game"),
+		Linked:   true,
+		Valid:    true,
+		StartsAt: time.Now().Add(-1 * time.Hour),
+		EndsAt:   time.Now().Add(5 * time.Hour),
+		Drops: []TimedDrop{
+			{
+				ID:              "d-1",
+				Name:            "Drop 1",
+				StartsAt:        time.Now().Add(-1 * time.Hour),
+				EndsAt:          time.Now().Add(5 * time.Hour),
+				RequiredMinutes: 60,
+				Benefits:        []Benefit{{ID: "b-1", Name: "Benefit", Type: BenefitDirectEntitlement}},
+			},
+		},
+		AllowedChannels: []model.Channel{
+			{ID: "chan-online-1", Login: "streamer_online"},
+		},
+	}
+
+	// When streamer_online is cooled down, it should return nil
+	res, err := ResolveChannelWithCooldown(context.Background(), gqlClient, campaign, func(login string) bool {
+		return login == "streamer_online"
+	})
+	require.NoError(t, err)
+	assert.Nil(t, res, "cooled candidate must be skipped")
+
+	// When not cooled down, streamer_online is chosen
+	res, err = ResolveChannelWithCooldown(context.Background(), gqlClient, campaign, func(login string) bool {
+		return false
+	})
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Equal(t, "streamer_online", res.Login)
+}

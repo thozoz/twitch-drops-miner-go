@@ -59,7 +59,41 @@ func setupMockServers(t *testing.T) (
 	}
 
 	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 1. Spade beacon POST endpoint
+		// 1. HLS Master Playlist
+		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/channel/hls/") {
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			w.WriteHeader(http.StatusOK)
+			// Extract channel login from /api/channel/hls/{login}.m3u8
+			path := strings.TrimPrefix(r.URL.Path, "/api/channel/hls/")
+			chLogin := strings.TrimSuffix(path, ".m3u8")
+			mediaURL := fmt.Sprintf("http://%s/hls/%s/index.m3u8", r.Host, chLogin)
+			_, _ = w.Write([]byte(fmt.Sprintf("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=160000\n%s\n", mediaURL)))
+			return
+		}
+
+		// 2. HLS Media Playlist
+		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/hls/") && strings.HasSuffix(r.URL.Path, "/index.m3u8") {
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("#EXTM3U\n#EXTINF:2.0,\nchunk.ts\n"))
+			return
+		}
+
+		// 3. HLS Segment HEAD endpoint
+		if r.Method == http.MethodHead && strings.HasPrefix(r.URL.Path, "/hls/") && strings.HasSuffix(r.URL.Path, "/chunk.ts") {
+			parts := strings.Split(r.URL.Path, "/")
+			chLogin := "unknown"
+			if len(parts) >= 3 {
+				chLogin = parts[2]
+			}
+			state.mu.Lock()
+			state.beaconChannels[chLogin]++
+			state.mu.Unlock()
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// 4. Legacy Spade beacon POST endpoint (if called)
 		if r.URL.Path == "/spade_beacon" && r.Method == http.MethodPost {
 			_ = r.ParseForm()
 			encoded := r.FormValue("data")
@@ -81,15 +115,7 @@ func setupMockServers(t *testing.T) (
 			return
 		}
 
-		// 2. DiscoverSpadeURL endpoint (GET returning HTML)
-		if r.Method == http.MethodGet {
-			w.Header().Set("Content-Type", "text/html")
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`<html><head><script>var spade={"spade_url":"http://` + r.Host + `/spade_beacon"};</script></head></html>`))
-			return
-		}
-
-		// 3. GQL endpoint (all other POST requests)
+		// 5. GQL endpoint (all other POST requests)
 		if r.Method == http.MethodPost {
 			body, _ := io.ReadAll(r.Body)
 			var op struct {
@@ -915,4 +941,47 @@ func TestWatchSession_NoProgressWatchdogDoesNotFireDuringProgress(t *testing.T) 
 	defer state.mu.Unlock()
 	require.Len(t, state.claimCalls, 1)
 	assert.Equal(t, "12345#camp-1#drop-1", state.claimCalls[0])
+}
+
+func TestWatchSession_WatcherTerminalErrorExitsSession(t *testing.T) {
+	httpServer, wsServer, _ := setupMockServers(t)
+	defer httpServer.Close()
+	defer wsServer.Close()
+
+	reg, _, err := gql.LoadRegistry("")
+	require.NoError(t, err)
+
+	ident := &mockIdentity{token: "mock_token"}
+	httpClient := resty.NewWithClient(httpServer.Client()).SetHostURL(httpServer.URL)
+	gqlClient := gql.NewClient(reg, ident, ident, httpClient, gql.WithMinRetryDelay(1*time.Millisecond))
+	watcher := channel.NewWatcher(gqlClient, httpClient, ident, 12345)
+
+	session := NewWatchSession(gqlClient, watcher, nil, 12345, nil, WithReconcileInterval(50*time.Millisecond))
+
+	game := model.NewGame("game-1", "Test Game", "test-game")
+	ch := model.Channel{
+		ID:           "ch_offline",
+		Login:        "offline_channel_terminal",
+		BroadcastID:  "bcast_offline",
+		Online:       true,
+		Game:         &game,
+		DropsEnabled: true,
+	}
+
+	drop := inventory.TimedDrop{
+		ID:              "drop-1",
+		Name:            "Tier 1 Reward",
+		RequiredMinutes: 10,
+		CurrentMinutes:  0,
+		StartsAt:        time.Now().Add(-1 * time.Hour),
+		EndsAt:          time.Now().Add(24 * time.Hour),
+	}
+	camp := buildTestCampaign(game, drop)
+
+	// When Start runs, PlaybackAccessToken will fail or 404 in loop
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err = session.Run(ctx, camp, ch)
+	require.Error(t, err, "session must terminate when watcher fails terminally")
 }

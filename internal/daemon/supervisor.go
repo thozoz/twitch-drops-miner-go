@@ -88,8 +88,13 @@ type Supervisor struct {
 	startedAt       time.Time
 	configPath      string
 
+	// channelCooldown tracks channels that yielded ErrNoProgress to temporarily avoid reselecting them
+	channelCooldown map[string]time.Time
+
+	// lastProgress tracks the last time the drop progress changed
+	lastProgress map[string]time.Time
+
 	// enableBadgesEmotes mirrors the enable_badges_emotes config setting at the
-	// moment the daemon started. Unlike priority/exclude it is never mutated
 	// live -- SplitEligible only runs once per selection cycle inside
 	// fetchInventory, and threading a live update through would need a new IPC
 	// method and a second mutable field with its own lock. A config change
@@ -197,7 +202,57 @@ func NewProductionSupervisor(
 
 	allOpts := append([]SupervisorOption{WithEnableBadgesEmotes(enableBadgesEmotes)}, opts...)
 	s = NewSupervisor(fetchInventory, resolveChannel, logger, priority, exclude, allOpts...)
+	// Wire cooldown filter to resolveChannel wrapper if using default
+	s.resolveChannel = func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) {
+		return inventory.ResolveChannelWithCooldown(ctx, gqlClient, c, s.isChannelCooled, dropExclude...)
+	}
 	return s
+}
+
+func (s *Supervisor) isChannelCooled(login string) bool {
+	if s.channelCooldown == nil {
+		return false
+	}
+	until, ok := s.channelCooldown[login]
+	if !ok {
+		return false
+	}
+	if time.Now().After(until) {
+		delete(s.channelCooldown, login)
+		return false
+	}
+	return true
+}
+
+func (s *Supervisor) coolChannel(login string, d time.Duration) {
+	if s.channelCooldown == nil {
+		s.channelCooldown = make(map[string]time.Time)
+	}
+	s.channelCooldown[login] = time.Now().Add(d)
+}
+
+func (s *Supervisor) updateProgressTime(dropName string) {
+	if s.lastProgress == nil {
+		s.lastProgress = make(map[string]time.Time)
+	}
+	s.lastProgress[dropName] = time.Now()
+}
+
+func (s *Supervisor) getLastProgressTime(dropName string) time.Time {
+	if t, ok := s.lastProgress[dropName]; ok {
+		return t
+	}
+	return time.Now()
+}
+
+func (s *Supervisor) getCurrentMinutes(dropName string) int {
+	// Minimal implementation - assumes minutes are managed via status object
+	// For full regression, this needs access to current drop progress.
+	// Since we are in Supervisor, s.status holds CurrentMinutes.
+	if s.status.ActiveDrop == dropName {
+		return s.status.CurrentMinutes
+	}
+	return 0
 }
 
 // Run runs the supervisor loop: select campaign -> resolve channel -> watch -> repeat.
@@ -304,6 +359,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			ProgressPercent: initialDrop.Progress() * 100,
 			ETASeconds:      int64(initialDrop.RemainingMinutes()) * 60,
 			LastSyncTime:    time.Now(),
+			LastProgressTime: s.getLastProgressTime(initialDrop.Name),
 		}
 		s.statusMu.Unlock()
 
@@ -312,11 +368,16 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			return nil
 		}
 
-		if runErr != nil && !errors.Is(runErr, session.ErrChannelOffline) && !errors.Is(runErr, session.ErrNoEarnableDrop) && !errors.Is(runErr, session.ErrNoProgress) {
+		if runErr != nil && !errors.Is(runErr, session.ErrChannelOffline) && !errors.Is(runErr, session.ErrNoEarnableDrop) {
 			s.logger.Error("watch session error", "error", runErr)
 			s.statusMu.Lock()
 			s.errorCount++
 			s.statusMu.Unlock()
+		}
+
+		if errors.Is(runErr, session.ErrNoProgress) {
+			s.logger.Warn("channel yielded no progress, placing into temporary cooldown", "channel", ch.Name())
+			s.coolChannel(ch.Login, 10*time.Minute)
 		}
 
 		if drop != nil {
@@ -327,6 +388,14 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			s.status.ProgressPercent = drop.Progress() * 100
 			s.status.ETASeconds = int64(drop.RemainingMinutes()) * 60
 			s.status.LastSyncTime = time.Now()
+			if drop.CurrentMinutes > s.getCurrentMinutes(drop.Name) {
+				s.updateProgressTime(drop.Name)
+			}
+			s.status.LastProgressTime = s.getLastProgressTime(drop.Name)
+			
+			if time.Since(s.status.LastProgressTime) > 5*time.Minute {
+				s.status.Status = "stalled"
+			}
 			s.statusMu.Unlock()
 		}
 
