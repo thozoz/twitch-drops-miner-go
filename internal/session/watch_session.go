@@ -9,13 +9,13 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/sync/errgroup"
 	"github.com/thozoz/twitch-drops-miner-go/internal/channel"
 	"github.com/thozoz/twitch-drops-miner-go/internal/gql"
 	"github.com/thozoz/twitch-drops-miner-go/internal/inventory"
 	"github.com/thozoz/twitch-drops-miner-go/internal/model"
 	"github.com/thozoz/twitch-drops-miner-go/internal/pubsub"
 	"github.com/thozoz/twitch-drops-miner-go/internal/state"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
