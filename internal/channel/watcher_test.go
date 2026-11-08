@@ -2,8 +2,8 @@ package channel
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -41,36 +41,43 @@ func TestWatcher_SingleChannelInvariant(t *testing.T) {
 			}
 		}
 
-		// 2. Channel page HTML endpoint (DiscoverSpadeURL)
-		if r.Method == http.MethodGet {
-			w.Header().Set("Content-Type", "text/html")
+		// 2. Usher Master Playlist
+		if r.Method == http.MethodGet && (r.URL.Path == "/api/channel/hls/streamer_a.m3u8" || r.URL.Path == "/api/channel/hls/streamer_b.m3u8") {
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`<html><head><script>var spade={"spade_url":"http://` + r.Host + `/spade_beacon"};</script></head></html>`))
+			streamer := "streamer_a"
+			if r.URL.Path == "/api/channel/hls/streamer_b.m3u8" {
+				streamer = "streamer_b"
+			}
+			mediaURL := fmt.Sprintf("http://%s/hls/%s/index.m3u8", r.Host, streamer)
+			_, _ = w.Write([]byte(fmt.Sprintf("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=160000\n%s\n", mediaURL)))
 			return
 		}
 
-		// 3. Spade beacon POST endpoint
-		if r.URL.Path == "/spade_beacon" && r.Method == http.MethodPost {
-			_ = r.ParseForm()
-			encoded := r.FormValue("data")
-			decoded, err := base64.StdEncoding.DecodeString(encoded)
-			if err == nil {
-				var events []WatchEvent
-				if json.Unmarshal(decoded, &events) == nil && len(events) > 0 {
-					chName := events[0].Properties.Channel
-					mu.Lock()
-					now := time.Now()
-					channelBeacons[chName] = append(channelBeacons[chName], now)
+		// 3. Media Playlist
+		if r.Method == http.MethodGet && (r.URL.Path == "/hls/streamer_a/index.m3u8" || r.URL.Path == "/hls/streamer_b/index.m3u8") {
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("#EXTM3U\n#EXTINF:2.0,\nchunk.ts\n"))
+			return
+		}
 
-					if activeLoopChannel != "" && activeLoopChannel != chName {
-						// Another channel sent a beacon while the previous was considered active
-						// Note: since Start blocks until prior done is closed, activeLoopChannel should be replaced cleanly
-					}
-					activeLoopChannel = chName
-					mu.Unlock()
-				}
+		// 4. Segment HEAD endpoint
+		if r.Method == http.MethodHead && (r.URL.Path == "/hls/streamer_a/chunk.ts" || r.URL.Path == "/hls/streamer_b/chunk.ts") {
+			chName := "streamer_a"
+			if r.URL.Path == "/hls/streamer_b/chunk.ts" {
+				chName = "streamer_b"
 			}
-			w.WriteHeader(http.StatusNoContent)
+			mu.Lock()
+			now := time.Now()
+			channelBeacons[chName] = append(channelBeacons[chName], now)
+			if activeLoopChannel != "" && activeLoopChannel != chName {
+				// Concurrent switch verification
+			}
+			activeLoopChannel = chName
+			mu.Unlock()
+
+			w.WriteHeader(http.StatusOK)
 			return
 		}
 
@@ -172,15 +179,21 @@ func TestWatcher_TickerDrain(t *testing.T) {
 			_, _ = w.Write([]byte(`{"data":{"streamPlaybackAccessToken":{"value":"{\"channel\":\"valid\"}","signature":"sig123"}}}`))
 			return
 		}
-		if r.Method == http.MethodGet {
-			w.Header().Set("Content-Type", "text/html")
+		if r.Method == http.MethodGet && r.URL.Path == "/api/channel/hls/streamer_test.m3u8" {
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`<html><head><script>var spade={"spade_url":"http://` + r.Host + `/spade_beacon"};</script></head></html>`))
+			_, _ = w.Write([]byte(fmt.Sprintf("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=160000\nhttp://%s/hls/index.m3u8\n", r.Host)))
 			return
 		}
-		if r.URL.Path == "/spade_beacon" {
+		if r.Method == http.MethodGet && r.URL.Path == "/hls/index.m3u8" {
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("#EXTM3U\n#EXTINF:2.0,\nchunk.ts\n"))
+			return
+		}
+		if r.Method == http.MethodHead && r.URL.Path == "/hls/chunk.ts" {
 			atomic.AddInt32(&beaconCount, 1)
-			w.WriteHeader(http.StatusNoContent)
+			w.WriteHeader(http.StatusOK)
 			return
 		}
 		http.NotFound(w, r)
@@ -230,3 +243,91 @@ func TestWatcher_TickerDrain(t *testing.T) {
 	assert.Empty(t, tickChan)
 	assert.Equal(t, int32(2), atomic.LoadInt32(&beaconCount), "initial beacon plus five collapsed ticks must produce exactly two sends")
 }
+
+func TestWatcher_HeaderHygieneAndSecurity(t *testing.T) {
+	var leakDetected bool
+	var mu sync.Mutex
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		// Ensure Usher and CDN requests do NOT leak Authorization, Cookie, Client-Id, X-Device-Id
+		if r.Header.Get("Content-Type") != "application/json" {
+			if r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" || r.Header.Get("Client-Id") != "" || r.Header.Get("X-Device-Id") != "" {
+				leakDetected = true
+			}
+		}
+		mu.Unlock()
+
+		if r.Header.Get("Content-Type") == "application/json" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"data":{"streamPlaybackAccessToken":{"value":"secret_token_val","signature":"secret_sig"}}}`))
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/api/channel/hls/clean_channel.m3u8" {
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(fmt.Sprintf("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=160000\nhttp://%s/hls/index.m3u8\n", r.Host)))
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/hls/index.m3u8" {
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("#EXTM3U\n#EXTINF:2.0,\nchunk.ts\n"))
+			return
+		}
+		if r.Method == http.MethodHead && r.URL.Path == "/hls/chunk.ts" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	reg, _, err := gql.LoadRegistry("")
+	require.NoError(t, err)
+
+	httpClient := resty.New().SetHostURL(server.URL)
+	gqlClient := gql.NewClient(reg, nil, nil, httpClient, gql.WithMinRetryDelay(1*time.Millisecond))
+	
+	// Create identity with sensitive credentials
+	ident := &mockIdentity{
+		clientID:    "client_id_secret",
+		deviceID:    "device_id_secret",
+		sessionID:   "session_id_secret",
+		accessToken: "oauth_access_token_secret",
+	}
+
+	watcher := NewWatcher(gqlClient, httpClient, ident, 12345)
+	ch := model.Channel{
+		ID:          "101",
+		Login:       "clean_channel",
+		BroadcastID: "bcast_101",
+	}
+
+	beaconDone := make(chan bool, 1)
+	watcher.OnBeacon = func(seq int, success bool, err error) {
+		select {
+		case beaconDone <- success:
+		default:
+		}
+	}
+
+	err = watcher.Start(context.Background(), ch)
+	require.NoError(t, err)
+
+	select {
+	case succ := <-beaconDone:
+		assert.True(t, succ)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for beacon")
+	}
+
+	watcher.Stop()
+
+	mu.Lock()
+	assert.False(t, leakDetected, "sensitive headers must not be sent to Usher or CDN")
+	mu.Unlock()
+}
+
+

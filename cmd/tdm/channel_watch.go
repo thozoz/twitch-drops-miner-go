@@ -133,12 +133,12 @@ var channelWatchCmd = &cobra.Command{
 		watcher := channel.NewWatcher(client, httpClient, session, session.Data().UserID)
 		watcher.OnBeacon = func(seq int, success bool, err error) {
 			if success {
-				fmt.Printf("sent beacon %d (204)\n", seq)
+				fmt.Printf("completed HLS HEAD watch cycle %d\n", seq)
 			} else {
 				if err != nil {
-					fmt.Printf("beacon %d failed: %v\n", seq, err)
+					fmt.Printf("HLS HEAD cycle %d failed: %v\n", seq, err)
 				} else {
-					fmt.Printf("beacon %d failed\n", seq)
+					fmt.Printf("HLS HEAD cycle %d failed\n", seq)
 				}
 			}
 		}
