@@ -2,6 +2,7 @@ package channel
 
 import (
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -53,6 +54,15 @@ file:///etc/passwd
 		_, err := ParseMasterPlaylist(baseURL, body)
 		require.ErrorIs(t, err, ErrMalformedPlaylist)
 	})
+}
+
+func TestPlaylistRejectsUnsafeAndTruncatedURIs(t *testing.T) {
+	base, _ := url.Parse("https://cdn.example/media.m3u8")
+	for _, uri := range []string{"https://user:secret@cdn.example/a", "https:///missing-host", "https://cdn.example/%zz?signature=secret", strings.Repeat("x", 70000)} {
+		_, err := ParseMediaPlaylist(base, "#EXTM3U\n#EXTINF:2,\n"+uri+"\n")
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), "secret")
+	}
 }
 
 func TestParseMediaPlaylist(t *testing.T) {

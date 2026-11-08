@@ -155,11 +155,17 @@ var channelWatchCmd = &cobra.Command{
 		if channelWatchMinutes > 0 {
 			select {
 			case <-sigCtx.Done():
+			case <-watcher.Done():
+				return &CommandError{Code: ExitError, Err: watcher.Err()}
 			case <-time.After(time.Duration(channelWatchMinutes) * time.Minute):
 				fmt.Printf("Watch session completed (%d minutes)\n", channelWatchMinutes)
 			}
 		} else {
-			<-sigCtx.Done()
+			select {
+			case <-sigCtx.Done():
+			case <-watcher.Done():
+				return &CommandError{Code: ExitError, Err: watcher.Err()}
+			}
 		}
 
 		return nil

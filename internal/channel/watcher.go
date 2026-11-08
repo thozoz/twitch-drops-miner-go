@@ -171,7 +171,7 @@ func (w *Watcher) loop(ctx context.Context, ch model.Channel, tokenVal, tokenSig
 		}
 
 		if cycleErr != nil {
-			if isAuthError(cycleErr) {
+			if isRefreshableMediaError(cycleErr) {
 				newVal, newSig, rerr := FetchPlaybackAccessToken(ctx, w.gqlClient, ch.Login)
 				if rerr == nil {
 					tokenVal = newVal
@@ -190,7 +190,7 @@ func (w *Watcher) loop(ctx context.Context, ch model.Channel, tokenVal, tokenSig
 		success := cycleErr == nil
 		w.notifyBeacon(seq, success, cycleErr)
 
-		if cycleErr != nil && isFatal(cycleErr) {
+		if cycleErr != nil {
 			w.setErr(cycleErr)
 			return
 		}
@@ -232,17 +232,7 @@ func (w *Watcher) watchCycle(ctx context.Context, ch model.Channel, tokenVal, to
 
 	segments, err := w.fetchMediaSegments(ctx, mediaURL)
 	if err != nil {
-		if isRefreshableMediaError(err) {
-			var mErr error
-			mediaURL, mErr = w.fetchMasterPlaylist(ctx, ch.Login, tokenVal, tokenSig)
-			if mErr != nil {
-				return "", mErr
-			}
-			segments, err = w.fetchMediaSegments(ctx, mediaURL)
-		}
-		if err != nil {
-			return "", err
-		}
+		return "", err
 	}
 
 	for _, segURL := range segments {
@@ -264,12 +254,8 @@ func (w *Watcher) fetchMasterPlaylist(ctx context.Context, channelLogin, tokenVa
 	}
 
 	q := url.Values{
-		"sig":            {tokenSig},
-		"token":          {tokenVal},
-		"allow_source":   {"true"},
-		"allow_audio_only": {"true"},
-		"fast_bread":     {"true"},
-		"player_backend": {"mediaplayer"},
+		"sig":   {tokenSig},
+		"token": {tokenVal},
 	}
 
 	body, finalURL, err := w.fetchPlaylistBody(ctx, masterBase+"?"+q.Encode())
@@ -349,18 +335,9 @@ func sanitizeErr(err error) error {
 	}
 	var urlErr *url.Error
 	if errors.As(err, &urlErr) {
-		urlErr.URL = "[REDACTED]"
-		return urlErr
+		return &url.Error{Op: urlErr.Op, URL: "[REDACTED]", Err: sanitizeErr(urlErr.Err)}
 	}
 	return err
-}
-
-func isAuthError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "401") || strings.Contains(msg, "403") || strings.Contains(msg, "forbidden")
 }
 
 func isRefreshableMediaError(err error) bool {
@@ -372,13 +349,6 @@ func isRefreshableMediaError(err error) bool {
 	}
 	msg := err.Error()
 	return strings.Contains(msg, "404") || strings.Contains(msg, "403") || strings.Contains(msg, "401")
-}
-
-func isFatal(err error) bool {
-	if err == nil {
-		return false
-	}
-	return errors.Is(err, ErrStreamOffline) || errors.Is(err, ErrPlaylistJSON) || errors.Is(err, ErrMalformedPlaylist) || errors.Is(err, ErrTerminalWatcher)
 }
 
 func drainTicker(c <-chan time.Time) {
