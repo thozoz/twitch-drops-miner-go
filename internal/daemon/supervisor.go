@@ -262,59 +262,79 @@ func (s *Supervisor) Run(ctx context.Context) error {
 		dropExclude := append([]string(nil), s.dropExclude...)
 		s.priorityMu.RUnlock()
 
-		selected := inventory.SelectCampaign(eligible, priority, exclude, time.Now(), s.enableBadgesEmotes, dropExclude...)
-		if selected == nil {
-			s.statusMu.Lock()
-			s.status = ipc.StatusResult{
-				Status:       "idle",
-				LastSyncTime: time.Now(),
-			}
-			s.statusMu.Unlock()
+		candidates := append([]inventory.DropsCampaign(nil), eligible...)
+		var (
+			selectedCampaign *inventory.DropsCampaign
+			selectedChannel  *model.Channel
+			initialDrop      *inventory.TimedDrop
+			firstAttempted   *inventory.DropsCampaign
+		)
 
-			if !s.sleep(ctx, s.reselectBackoff) {
+		for len(candidates) > 0 {
+			if ctx.Err() != nil {
 				return nil
 			}
-			continue
-		}
 
-		ch, err := s.resolveChannel(ctx, *selected, dropExclude...)
-		if err != nil || ch == nil {
+			pick := inventory.SelectCampaign(candidates, priority, exclude, time.Now(), s.enableBadgesEmotes, dropExclude...)
+			if pick == nil {
+				break
+			}
+			if firstAttempted == nil {
+				firstAttempted = pick
+			}
+
+			// Remove attempted campaign from this pass's candidates
+			n := 0
+			for _, c := range candidates {
+				if c.ID != pick.ID {
+					candidates[n] = c
+					n++
+				}
+			}
+			candidates = candidates[:n]
+
+			ch, err := s.resolveChannel(ctx, *pick, dropExclude...)
+			if ctx.Err() != nil {
+				return nil
+			}
 			if err != nil {
-				s.logger.Warn("failed to resolve channel for selected campaign", "campaign", selected.Name, "error", err)
+				s.logger.Warn("failed to resolve channel for selected campaign", "campaign", pick.Name, "error", err)
 				s.statusMu.Lock()
 				s.errorCount++
 				s.statusMu.Unlock()
-			} else {
-				s.logger.Info("no live channel found for campaign", "campaign", selected.Name, "game", selected.Game.Name)
+				continue
 			}
-			s.statusMu.Lock()
-			s.status = ipc.StatusResult{
-				Status:         "idle",
-				ActiveCampaign: selected.Name,
-				ActiveGame:     selected.Game.Name,
-				LastSyncTime:   time.Now(),
+			if ch == nil {
+				s.logger.Info("no live channel found for campaign", "campaign", pick.Name, "game", pick.Game.Name)
+				continue
 			}
-			s.statusMu.Unlock()
 
-			if !s.sleep(ctx, s.reselectBackoff) {
-				return nil
+			drop, ok := pick.FirstEarnableDrop(time.Now(), ch, dropExclude...)
+			if !ok || drop == nil {
+				s.logger.Info("selected campaign has no earnable drop on resolved channel",
+					"campaign", pick.Name,
+					"game", pick.Game.Name,
+					"channel", ch.Name())
+				continue
 			}
-			continue
+
+			selectedCampaign = pick
+			selectedChannel = ch
+			initialDrop = drop
+			break
 		}
 
-		initialDrop, ok := selected.FirstEarnableDrop(time.Now(), ch, dropExclude...)
-		if !ok || initialDrop == nil {
-			s.logger.Info("selected campaign has no earnable drop on resolved channel",
-				"campaign", selected.Name,
-				"game", selected.Game.Name,
-				"channel", ch.Name())
+		if selectedCampaign == nil {
 			s.statusMu.Lock()
-			s.status = ipc.StatusResult{
-				Status:         "idle",
-				ActiveCampaign: selected.Name,
-				ActiveGame:     selected.Game.Name,
-				LastSyncTime:   time.Now(),
+			st := ipc.StatusResult{
+				Status:       "idle",
+				LastSyncTime: time.Now(),
 			}
+			if firstAttempted != nil {
+				st.ActiveCampaign = firstAttempted.Name
+				st.ActiveGame = firstAttempted.Game.Name
+			}
+			s.status = st
 			s.statusMu.Unlock()
 
 			if !s.sleep(ctx, s.reselectBackoff) {
@@ -326,9 +346,9 @@ func (s *Supervisor) Run(ctx context.Context) error {
 		s.statusMu.Lock()
 		s.status = ipc.StatusResult{
 			Status:           "watching",
-			ActiveCampaign:   selected.Name,
-			ActiveGame:       selected.Game.Name,
-			WatchingChannel:  ch.Name(),
+			ActiveCampaign:   selectedCampaign.Name,
+			ActiveGame:       selectedCampaign.Game.Name,
+			WatchingChannel:  selectedChannel.Name(),
 			ActiveDrop:       initialDrop.Name,
 			CurrentMinutes:   initialDrop.CurrentMinutes,
 			RequiredMinutes:  initialDrop.RequiredMinutes,
@@ -341,7 +361,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 		s.progressHighWater = initialDrop.CurrentMinutes
 		s.statusMu.Unlock()
 
-		drop, runErr := s.runWatch(ctx, *selected, *ch)
+		drop, runErr := s.runWatch(ctx, *selectedCampaign, *selectedChannel)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -354,8 +374,8 @@ func (s *Supervisor) Run(ctx context.Context) error {
 		}
 
 		if errors.Is(runErr, session.ErrNoProgress) {
-			s.logger.Warn("channel yielded no progress, placing into temporary cooldown", "channel", ch.Name())
-			s.coolChannel(ch.Login, 10*time.Minute)
+			s.logger.Warn("channel yielded no progress, placing into temporary cooldown", "channel", selectedChannel.Name())
+			s.coolChannel(selectedChannel.Login, 10*time.Minute)
 		}
 
 		if runErr != nil {
