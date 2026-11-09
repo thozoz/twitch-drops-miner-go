@@ -31,7 +31,7 @@ func CanClaim(d TimedDrop, campaignEndsAt, now time.Time) bool {
 // If the drop is already claimed, it returns true immediately without issuing a GQL request.
 // If the claim ID is missing, one is generated from the user ID, campaign ID, and drop ID.
 // Both ELIGIBLE_FOR_ALL and DROP_INSTANCE_ALREADY_CLAIMED statuses from Twitch are treated as success,
-// provided the user account is connected (isUserAccountConnected is not false).
+// Game rewards additionally require a connected publisher account; native badges/emotes do not.
 func ClaimDrop(ctx context.Context, client *gql.Client, campaign DropsCampaign, drop *TimedDrop, userID int, logger *slog.Logger) (claimed bool, err error) {
 	if drop == nil {
 		return false, nil
@@ -75,7 +75,7 @@ func ClaimDrop(ctx context.Context, client *gql.Client, campaign DropsCampaign, 
 		return false, nil
 	}
 
-	if status != "DROP_INSTANCE_ALREADY_CLAIMED" && resp.ClaimDropRewards.IsUserAccountConnected != nil && !*resp.ClaimDropRewards.IsUserAccountConnected {
+	if status != "DROP_INSTANCE_ALREADY_CLAIMED" && !drop.OnlyBadgeOrEmote() && resp.ClaimDropRewards.IsUserAccountConnected != nil && !*resp.ClaimDropRewards.IsUserAccountConnected {
 		if logger == nil {
 			logger = slog.Default()
 		}

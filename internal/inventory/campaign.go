@@ -107,21 +107,30 @@ func (c DropsCampaign) HasBadgeOrEmote() bool {
 	return false
 }
 
-// OnlyBadgeOrEmote identifies campaigns whose known rewards need no publisher account.
-func (c DropsCampaign) OnlyBadgeOrEmote() bool {
-	found := false
-	for _, d := range c.Drops {
-		if len(d.Benefits) == 0 {
+// OnlyBadgeOrEmote requires non-empty, exclusively native benefits.
+func (d TimedDrop) OnlyBadgeOrEmote() bool {
+	if len(d.Benefits) == 0 {
+		return false
+	}
+	for _, b := range d.Benefits {
+		if !b.Type.IsBadgeOrEmote() {
 			return false
 		}
-		for _, b := range d.Benefits {
-			if !b.Type.IsBadgeOrEmote() {
-				return false
-			}
-			found = true
+	}
+	return true
+}
+
+// OnlyBadgeOrEmote identifies campaigns whose known rewards need no publisher account.
+func (c DropsCampaign) OnlyBadgeOrEmote() bool {
+	if len(c.Drops) == 0 {
+		return false
+	}
+	for _, d := range c.Drops {
+		if !d.OnlyBadgeOrEmote() {
+			return false
 		}
 	}
-	return found
+	return true
 }
 
 // Eligible requires account linkage for game rewards. Badge/emote campaigns
