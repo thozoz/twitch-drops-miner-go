@@ -360,7 +360,9 @@ func newPriorityTestSupervisor(t *testing.T, opts ...SupervisorOption) *Supervis
 	t.Helper()
 	return NewSupervisor(
 		func(ctx context.Context) ([]inventory.DropsCampaign, error) { return nil, nil },
-		func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) { return nil, nil },
+		func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) {
+			return nil, nil
+		},
 		nil,
 		[]string{"Existing"},
 		nil,
@@ -773,4 +775,3 @@ func TestSupervisor_CampaignFallback_ContextCancelDuringFallback(t *testing.T) {
 		t.Fatal("supervisor Run did not terminate promptly on context cancellation")
 	}
 }
-
