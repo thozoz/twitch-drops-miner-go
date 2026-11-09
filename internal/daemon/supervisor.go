@@ -88,6 +88,9 @@ type Supervisor struct {
 	startedAt       time.Time
 	configPath      string
 
+	// channelCooldown tracks channels that yielded ErrNoProgress to temporarily avoid reselecting them
+	channelCooldown map[string]time.Time
+
 	// enableBadgesEmotes mirrors the enable_badges_emotes config setting at the
 	// moment the daemon started. Unlike priority/exclude it is never mutated
 	// live -- SplitEligible only runs once per selection cycle inside
@@ -101,9 +104,11 @@ type Supervisor struct {
 	exclude     []string
 	dropExclude []string
 
-	statusMu   sync.RWMutex
-	status     ipc.StatusResult
-	errorCount int
+	statusMu          sync.RWMutex
+	status            ipc.StatusResult
+	errorCount        int
+	progressDropID    string
+	progressHighWater int
 }
 
 // NewSupervisor creates a Supervisor with injected fetch and resolve closures.
@@ -197,7 +202,33 @@ func NewProductionSupervisor(
 
 	allOpts := append([]SupervisorOption{WithEnableBadgesEmotes(enableBadgesEmotes)}, opts...)
 	s = NewSupervisor(fetchInventory, resolveChannel, logger, priority, exclude, allOpts...)
+	// Wire cooldown filter to resolveChannel wrapper if using default
+	s.resolveChannel = func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) {
+		return inventory.ResolveChannelWithCooldown(ctx, gqlClient, c, s.isChannelCooled, dropExclude...)
+	}
 	return s
+}
+
+func (s *Supervisor) isChannelCooled(login string) bool {
+	if s.channelCooldown == nil {
+		return false
+	}
+	until, ok := s.channelCooldown[login]
+	if !ok {
+		return false
+	}
+	if time.Now().After(until) {
+		delete(s.channelCooldown, login)
+		return false
+	}
+	return true
+}
+
+func (s *Supervisor) coolChannel(login string, d time.Duration) {
+	if s.channelCooldown == nil {
+		s.channelCooldown = make(map[string]time.Time)
+	}
+	s.channelCooldown[login] = time.Now().Add(d)
 }
 
 // Run runs the supervisor loop: select campaign -> resolve channel -> watch -> repeat.
@@ -294,17 +325,20 @@ func (s *Supervisor) Run(ctx context.Context) error {
 
 		s.statusMu.Lock()
 		s.status = ipc.StatusResult{
-			Status:          "watching",
-			ActiveCampaign:  selected.Name,
-			ActiveGame:      selected.Game.Name,
-			WatchingChannel: ch.Name(),
-			ActiveDrop:      initialDrop.Name,
-			CurrentMinutes:  initialDrop.CurrentMinutes,
-			RequiredMinutes: initialDrop.RequiredMinutes,
-			ProgressPercent: initialDrop.Progress() * 100,
-			ETASeconds:      int64(initialDrop.RemainingMinutes()) * 60,
-			LastSyncTime:    time.Now(),
+			Status:           "watching",
+			ActiveCampaign:   selected.Name,
+			ActiveGame:       selected.Game.Name,
+			WatchingChannel:  ch.Name(),
+			ActiveDrop:       initialDrop.Name,
+			CurrentMinutes:   initialDrop.CurrentMinutes,
+			RequiredMinutes:  initialDrop.RequiredMinutes,
+			ProgressPercent:  initialDrop.Progress() * 100,
+			ETASeconds:       int64(initialDrop.RemainingMinutes()) * 60,
+			LastSyncTime:     time.Now(),
+			LastProgressTime: time.Now(),
 		}
+		s.progressDropID = initialDrop.ID
+		s.progressHighWater = initialDrop.CurrentMinutes
 		s.statusMu.Unlock()
 
 		drop, runErr := s.runWatch(ctx, *selected, *ch)
@@ -312,15 +346,27 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			return nil
 		}
 
-		if runErr != nil && !errors.Is(runErr, session.ErrChannelOffline) && !errors.Is(runErr, session.ErrNoEarnableDrop) && !errors.Is(runErr, session.ErrNoProgress) {
+		if runErr != nil && !errors.Is(runErr, session.ErrChannelOffline) && !errors.Is(runErr, session.ErrNoEarnableDrop) {
 			s.logger.Error("watch session error", "error", runErr)
 			s.statusMu.Lock()
 			s.errorCount++
 			s.statusMu.Unlock()
 		}
 
+		if errors.Is(runErr, session.ErrNoProgress) {
+			s.logger.Warn("channel yielded no progress, placing into temporary cooldown", "channel", ch.Name())
+			s.coolChannel(ch.Login, 10*time.Minute)
+		}
+
+		if runErr != nil {
+			s.statusMu.Lock()
+			s.status.Status = "retrying"
+			s.statusMu.Unlock()
+		}
+
 		if drop != nil {
 			s.statusMu.Lock()
+			s.recordProgressLocked(drop)
 			s.status.ActiveDrop = drop.Name
 			s.status.CurrentMinutes = drop.CurrentMinutes
 			s.status.RequiredMinutes = drop.RequiredMinutes
@@ -351,6 +397,9 @@ func (s *Supervisor) Status(ctx context.Context) (ipc.StatusResult, error) {
 	defer s.statusMu.RUnlock()
 
 	st := s.status
+	if st.Status == "watching" && !st.LastProgressTime.IsZero() && time.Since(st.LastProgressTime) >= 5*time.Minute {
+		st.Status = "stalled"
+	}
 	if st.Status == "" {
 		st.Status = "starting"
 	}
@@ -547,6 +596,22 @@ func removeGames(list, drop []string) []string {
 	return out
 }
 
+// recordProgressLocked ignores repeated/decreasing samples; a new drop gets a grace window.
+func (s *Supervisor) recordProgressLocked(drop *inventory.TimedDrop) {
+	if s.progressDropID == "" {
+		s.progressDropID = drop.ID
+		s.progressHighWater = s.status.CurrentMinutes
+	}
+	if s.progressDropID != drop.ID {
+		s.progressDropID = drop.ID
+		s.progressHighWater = drop.CurrentMinutes
+		s.status.LastProgressTime = time.Now()
+	} else if drop.CurrentMinutes > s.progressHighWater {
+		s.progressHighWater = drop.CurrentMinutes
+		s.status.LastProgressTime = time.Now()
+	}
+}
+
 // UpdateDropProgress updates the live active drop progress in the supervisor status.
 func (s *Supervisor) UpdateDropProgress(drop *inventory.TimedDrop) {
 	if drop == nil {
@@ -554,6 +619,7 @@ func (s *Supervisor) UpdateDropProgress(drop *inventory.TimedDrop) {
 	}
 	s.statusMu.Lock()
 	defer s.statusMu.Unlock()
+	s.recordProgressLocked(drop)
 	s.status.ActiveDrop = drop.Name
 	s.status.CurrentMinutes = drop.CurrentMinutes
 	s.status.RequiredMinutes = drop.RequiredMinutes

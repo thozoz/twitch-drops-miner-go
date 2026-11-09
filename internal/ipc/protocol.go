@@ -22,19 +22,20 @@ const (
 
 // StatusResult contains snapshot details about the daemon's current operational state.
 type StatusResult struct {
-	Status          string    `json:"status"`
-	PID             int       `json:"pid"`
-	UptimeSeconds   int64     `json:"uptime_seconds"`
-	ActiveGame      string    `json:"active_game"`
-	ActiveCampaign  string    `json:"active_campaign"`
-	ActiveDrop      string    `json:"active_drop"`
-	CurrentMinutes  int       `json:"current_minutes"`
-	RequiredMinutes int       `json:"required_minutes"`
-	ProgressPercent float64   `json:"progress_percent"`
-	WatchingChannel string    `json:"watching_channel"`
-	ETASeconds      int64     `json:"eta_seconds"`
-	ErrorCount      int       `json:"error_count"`
-	LastSyncTime    time.Time `json:"last_sync_time"`
+	Status           string    `json:"status"`
+	PID              int       `json:"pid"`
+	UptimeSeconds    int64     `json:"uptime_seconds"`
+	ActiveGame       string    `json:"active_game"`
+	ActiveCampaign   string    `json:"active_campaign"`
+	ActiveDrop       string    `json:"active_drop"`
+	CurrentMinutes   int       `json:"current_minutes"`
+	RequiredMinutes  int       `json:"required_minutes"`
+	ProgressPercent  float64   `json:"progress_percent"`
+	WatchingChannel  string    `json:"watching_channel"`
+	ETASeconds       int64     `json:"eta_seconds"`
+	ErrorCount       int       `json:"error_count"`
+	LastSyncTime     time.Time `json:"last_sync_time"`
+	LastProgressTime time.Time `json:"last_progress_time"`
 }
 
 // PriorityAction defines the mutation or query action for priority games.

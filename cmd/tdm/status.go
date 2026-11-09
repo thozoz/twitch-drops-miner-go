@@ -68,6 +68,12 @@ func formatStatus(r ipc.StatusResult, asJSON bool) (string, error) {
 		fmt.Sprintf("Errors: %d", r.ErrorCount),
 		fmt.Sprintf("Uptime: %s", (time.Duration(r.UptimeSeconds) * time.Second).String()),
 	}
+	if !r.LastProgressTime.IsZero() {
+		lines = append(lines, fmt.Sprintf("Last minute increase: %s ago", time.Since(r.LastProgressTime).Truncate(time.Second)))
+	}
+	if r.Status == "stalled" {
+		lines = append(lines, "Warning: Twitch-reported minutes have not increased for at least 5 minutes; successful watch requests/notifications do not prove progress.")
+	}
 	return strings.Join(lines, "\n"), nil
 }
 

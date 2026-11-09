@@ -9,11 +9,11 @@ import (
 	"github.com/thozoz/twitch-drops-miner-go/internal/gql"
 )
 
-// FetchCurrentDropProgress queries Twitch GQL for the currently watched drop progress on a given channel.
+// FetchCurrentDropProgress queries Twitch GQL for the currently watched drop progress on a given channel login.
 // If there is no active drop session (DropCurrentSession is null), it returns ("", 0, false, nil).
 // If a drop session is active, it returns the drop ID, current minutes watched, ok=true, and nil error.
-func FetchCurrentDropProgress(ctx context.Context, client *gql.Client, channelID string) (dropID string, currentMinutes int, ok bool, err error) {
-	data, err := client.Do(ctx, "DropCurrentSessionContext", map[string]any{"channelID": channelID})
+func FetchCurrentDropProgress(ctx context.Context, client *gql.Client, channelLogin string) (dropID string, currentMinutes int, ok bool, err error) {
+	data, err := client.Do(ctx, "DropCurrentSessionContext", map[string]any{"channelLogin": channelLogin})
 	if err != nil {
 		return "", 0, false, err
 	}
