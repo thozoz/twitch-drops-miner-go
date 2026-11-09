@@ -445,3 +445,332 @@ func TestSupervisor_UpdatePriorityWithoutConfigPathStaysInMemory(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"Existing", "Rust"}, res.Priority)
 }
+
+func TestSupervisor_CampaignFallback_NoLiveChannelTriesNextCandidate(t *testing.T) {
+	campA := makeTestCampaign("c-a", "Campaign A", "GameA")
+	campB := makeTestCampaign("c-b", "Campaign B", "GameB")
+
+	fetchInventory := func(ctx context.Context) ([]inventory.DropsCampaign, error) {
+		return []inventory.DropsCampaign{campA, campB}, nil
+	}
+
+	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) {
+		if c.Game.Name == "GameA" {
+			// GameA has no live channel
+			return nil, nil
+		}
+		ch := makeTestChannel("ch-b", "streamer_b", "Streamer B", c.Game.Name)
+		return &ch, nil
+	}
+
+	watched := make(chan string, 10)
+	runWatch := func(ctx context.Context, campaign inventory.DropsCampaign, ch model.Channel) (*inventory.TimedDrop, error) {
+		watched <- campaign.Game.Name
+		return nil, nil
+	}
+
+	sup := NewSupervisor(
+		fetchInventory,
+		resolveChannel,
+		nil,
+		[]string{"GameA", "GameB"},
+		nil,
+		WithReselectBackoff(5*time.Millisecond),
+		WithWatchRunner(runWatch),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- sup.Run(ctx)
+	}()
+
+	// Expect GameB to be watched in the first pass because GameA has no live channel.
+	// On buggy code, GameA causes supervisor to idle and sleep reselectBackoff without trying GameB.
+	select {
+	case game := <-watched:
+		assert.Equal(t, "GameB", game)
+	case <-time.After(150 * time.Millisecond):
+		t.Fatal("timed out waiting for fallback to GameB: supervisor starved GameB due to GameA having no live channel")
+	}
+
+	cancel()
+	select {
+	case err := <-runDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("supervisor Run did not terminate promptly")
+	}
+}
+
+func TestSupervisor_CampaignFallback_AllCandidatesExhaustedIdlesCleanly(t *testing.T) {
+	campA := makeTestCampaign("c-a", "Campaign A", "GameA")
+	campB := makeTestCampaign("c-b", "Campaign B", "GameB")
+
+	var mu sync.Mutex
+	passCount := 0
+	resolutionsPerPass := make(map[int][]string)
+
+	fetchInventory := func(ctx context.Context) ([]inventory.DropsCampaign, error) {
+		mu.Lock()
+		passCount++
+		mu.Unlock()
+		return []inventory.DropsCampaign{campA, campB}, nil
+	}
+
+	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) {
+		mu.Lock()
+		currentPass := passCount
+		resolutionsPerPass[currentPass] = append(resolutionsPerPass[currentPass], c.Game.Name)
+		mu.Unlock()
+		return nil, nil // both offline
+	}
+
+	runWatchCalled := false
+	runWatch := func(ctx context.Context, campaign inventory.DropsCampaign, ch model.Channel) (*inventory.TimedDrop, error) {
+		mu.Lock()
+		runWatchCalled = true
+		mu.Unlock()
+		return nil, nil
+	}
+
+	sup := NewSupervisor(
+		fetchInventory,
+		resolveChannel,
+		nil,
+		[]string{"GameA", "GameB"},
+		nil,
+		WithReselectBackoff(10*time.Millisecond),
+		WithWatchRunner(runWatch),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- sup.Run(ctx)
+	}()
+
+	// Wait until at least 2 passes have occurred
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return passCount >= 2
+	}, 2*time.Second, 10*time.Millisecond)
+
+	cancel()
+	select {
+	case err := <-runDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("supervisor Run did not terminate promptly")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.False(t, runWatchCalled)
+	// In pass 1, both GameA and GameB should have been attempted exactly once
+	require.Contains(t, resolutionsPerPass, 1)
+	assert.Equal(t, []string{"GameA", "GameB"}, resolutionsPerPass[1], "pass 1 must attempt both GameA and GameB once before idling")
+}
+
+func TestSupervisor_CampaignFallback_NextPassReconsidersPriorCampaign(t *testing.T) {
+	campA := makeTestCampaign("c-a", "Campaign A", "GameA")
+	campB := makeTestCampaign("c-b", "Campaign B", "GameB")
+
+	var mu sync.Mutex
+	campAOnline := false
+	var watchedGames []string
+	watch1Done := make(chan struct{})
+	watch2Done := make(chan struct{})
+
+	fetchInventory := func(ctx context.Context) ([]inventory.DropsCampaign, error) {
+		return []inventory.DropsCampaign{campA, campB}, nil
+	}
+
+	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) {
+		mu.Lock()
+		online := campAOnline
+		mu.Unlock()
+
+		if c.Game.Name == "GameA" && !online {
+			return nil, nil
+		}
+		ch := makeTestChannel("ch-"+c.Game.Name, "streamer_"+c.Game.Name, "Streamer "+c.Game.Name, c.Game.Name)
+		return &ch, nil
+	}
+
+	runWatch := func(ctx context.Context, campaign inventory.DropsCampaign, ch model.Channel) (*inventory.TimedDrop, error) {
+		mu.Lock()
+		watchedGames = append(watchedGames, campaign.Game.Name)
+		count := len(watchedGames)
+		mu.Unlock()
+
+		if count == 1 {
+			// Pass 1 finished watching GameB. Now GameA comes online for pass 2.
+			mu.Lock()
+			campAOnline = true
+			mu.Unlock()
+			close(watch1Done)
+		} else if count == 2 {
+			close(watch2Done)
+		}
+		return nil, nil
+	}
+
+	sup := NewSupervisor(
+		fetchInventory,
+		resolveChannel,
+		nil,
+		[]string{"GameA", "GameB"},
+		nil,
+		WithReselectBackoff(5*time.Millisecond),
+		WithWatchRunner(runWatch),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- sup.Run(ctx)
+	}()
+
+	select {
+	case <-watch1Done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for watch 1 (GameB fallback)")
+	}
+
+	select {
+	case <-watch2Done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for watch 2 (GameA reconsideration)")
+	}
+
+	cancel()
+	select {
+	case err := <-runDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("supervisor Run did not terminate promptly")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, watchedGames, 2)
+	assert.Equal(t, "GameB", watchedGames[0], "pass 1 should have watched GameB via fallback")
+	assert.Equal(t, "GameA", watchedGames[1], "pass 2 should have watched GameA once online")
+}
+
+func TestSupervisor_CampaignFallback_ContextCancelAndError(t *testing.T) {
+	campA := makeTestCampaign("c-a", "Campaign A", "GameA")
+	campB := makeTestCampaign("c-b", "Campaign B", "GameB")
+
+	fetchInventory := func(ctx context.Context) ([]inventory.DropsCampaign, error) {
+		return []inventory.DropsCampaign{campA, campB}, nil
+	}
+
+	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) {
+		if c.Game.Name == "GameA" {
+			return nil, errors.New("resolution failure for GameA")
+		}
+		ch := makeTestChannel("ch-b", "streamer_b", "Streamer B", c.Game.Name)
+		return &ch, nil
+	}
+
+	watched := make(chan string, 1)
+	runWatch := func(ctx context.Context, campaign inventory.DropsCampaign, ch model.Channel) (*inventory.TimedDrop, error) {
+		watched <- campaign.Game.Name
+		return nil, nil
+	}
+
+	sup := NewSupervisor(
+		fetchInventory,
+		resolveChannel,
+		nil,
+		[]string{"GameA", "GameB"},
+		nil,
+		WithReselectBackoff(5*time.Millisecond),
+		WithWatchRunner(runWatch),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- sup.Run(ctx)
+	}()
+
+	select {
+	case game := <-watched:
+		assert.Equal(t, "GameB", game)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for fallback to GameB on GameA resolution error")
+	}
+
+	// Verify error was tracked
+	st, err := sup.Status(ctx)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, st.ErrorCount, 1, "errorCount must be incremented on resolution error")
+
+	cancel()
+	select {
+	case err := <-runDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("supervisor Run did not terminate promptly")
+	}
+}
+
+func TestSupervisor_CampaignFallback_ContextCancelDuringFallback(t *testing.T) {
+	campA := makeTestCampaign("c-a", "Campaign A", "GameA")
+	campB := makeTestCampaign("c-b", "Campaign B", "GameB")
+
+	fetchInventory := func(ctx context.Context) ([]inventory.DropsCampaign, error) {
+		return []inventory.DropsCampaign{campA, campB}, nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	inResolve := make(chan struct{})
+
+	resolveChannel := func(cctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) {
+		close(inResolve)
+		<-cctx.Done()
+		return nil, cctx.Err()
+	}
+
+	runWatch := func(ctx context.Context, campaign inventory.DropsCampaign, ch model.Channel) (*inventory.TimedDrop, error) {
+		return nil, nil
+	}
+
+	sup := NewSupervisor(
+		fetchInventory,
+		resolveChannel,
+		nil,
+		[]string{"GameA", "GameB"},
+		nil,
+		WithReselectBackoff(5*time.Millisecond),
+		WithWatchRunner(runWatch),
+	)
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- sup.Run(ctx)
+	}()
+
+	<-inResolve
+	cancel()
+
+	select {
+	case err := <-runDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("supervisor Run did not terminate promptly on context cancellation")
+	}
+}
+
