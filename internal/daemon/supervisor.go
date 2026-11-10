@@ -27,6 +27,17 @@ func WithReselectBackoff(d time.Duration) SupervisorOption {
 	}
 }
 
+// defaultIdleBackoff is the production wait after a full selection pass found nothing to watch.
+const defaultIdleBackoff = 60 * time.Second
+
+// WithIdleBackoff overrides the wait after a selection pass yields no watchable campaign.
+// Zero (the NewSupervisor default) falls back to the reselect backoff.
+func WithIdleBackoff(d time.Duration) SupervisorOption {
+	return func(s *Supervisor) {
+		s.idleBackoff = d
+	}
+}
+
 // WithWatchRunner injects the runner function executed for each active watch session.
 func WithWatchRunner(fn func(ctx context.Context, campaign inventory.DropsCampaign, ch model.Channel) (*inventory.TimedDrop, error)) SupervisorOption {
 	return func(s *Supervisor) {
@@ -85,6 +96,7 @@ type Supervisor struct {
 	runWatch        func(ctx context.Context, campaign inventory.DropsCampaign, ch model.Channel) (*inventory.TimedDrop, error)
 	logger          *slog.Logger
 	reselectBackoff time.Duration
+	idleBackoff     time.Duration
 	startedAt       time.Time
 	configPath      string
 
@@ -197,15 +209,14 @@ func NewProductionSupervisor(
 	}
 
 	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) {
-		return inventory.ResolveChannel(ctx, gqlClient, c, dropExclude...)
-	}
-
-	allOpts := append([]SupervisorOption{WithEnableBadgesEmotes(enableBadgesEmotes)}, opts...)
-	s = NewSupervisor(fetchInventory, resolveChannel, logger, priority, exclude, allOpts...)
-	// Wire cooldown filter to resolveChannel wrapper if using default
-	s.resolveChannel = func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) {
 		return inventory.ResolveChannelWithCooldown(ctx, gqlClient, c, s.isChannelCooled, dropExclude...)
 	}
+
+	allOpts := append([]SupervisorOption{
+		WithEnableBadgesEmotes(enableBadgesEmotes),
+		WithIdleBackoff(defaultIdleBackoff),
+	}, opts...)
+	s = NewSupervisor(fetchInventory, resolveChannel, logger, priority, exclude, allOpts...)
 	return s
 }
 
@@ -337,7 +348,11 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			s.status = st
 			s.statusMu.Unlock()
 
-			if !s.sleep(ctx, s.reselectBackoff) {
+			idle := s.idleBackoff
+			if idle == 0 {
+				idle = s.reselectBackoff
+			}
+			if !s.sleep(ctx, idle) {
 				return nil
 			}
 			continue
@@ -373,8 +388,8 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			s.statusMu.Unlock()
 		}
 
-		if errors.Is(runErr, session.ErrNoProgress) {
-			s.logger.Warn("channel yielded no progress, placing into temporary cooldown", "channel", selectedChannel.Name())
+		if errors.Is(runErr, session.ErrNoProgress) || errors.Is(runErr, session.ErrWatcherFailed) {
+			s.logger.Warn("abandoning channel, placing into temporary cooldown", "channel", selectedChannel.Name(), "reason", runErr)
 			s.coolChannel(selectedChannel.Login, 10*time.Minute)
 		}
 

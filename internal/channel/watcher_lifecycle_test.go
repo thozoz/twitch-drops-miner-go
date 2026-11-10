@@ -40,14 +40,100 @@ func TestWatcher_RepeatedForbiddenTerminates(t *testing.T) {
 			rw.WriteHeader(http.StatusForbidden)
 		}
 	})
+	w.interval = 10 * time.Millisecond
 	require.NoError(t, w.Start(context.Background(), model.Channel{Login: "test"}))
 	select {
 	case <-w.Done():
 	case <-time.After(time.Second):
 		t.Fatal("repeated HTTP403 must terminate instead of silently remaining watching")
 	}
-	require.Error(t, w.Err())
-	require.Equal(t, int32(2), tokens.Load(), "only one playback refresh per failed cycle")
+	var se *HTTPStatusError
+	require.ErrorAs(t, w.Err(), &se)
+	require.Equal(t, http.StatusForbidden, se.Code)
+	require.Equal(t, int32(1+maxConsecutiveFailures), tokens.Load(), "one playback refresh per failed cycle")
+}
+
+func TestWatcher_TransientFailureRecovers(t *testing.T) {
+	var heads atomic.Int32
+	results := make(chan bool, 16)
+	w := lifecycleWatcher(t, func(rw http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost:
+			rw.Header().Set("Content-Type", "application/json")
+			io.WriteString(rw, `{"data":{"streamPlaybackAccessToken":{"value":"fake","signature":"fake"}}}`)
+		case strings.HasPrefix(r.URL.Path, "/api/"):
+			io.WriteString(rw, "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\n/media.m3u8\n")
+		case r.URL.Path == "/media.m3u8":
+			io.WriteString(rw, "#EXTM3U\n#EXTINF:2,\n/segment.ts\n")
+		case r.Method == http.MethodHead:
+			if heads.Add(1) <= maxConsecutiveFailures-1 {
+				rw.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			rw.WriteHeader(http.StatusOK)
+		}
+	})
+	w.interval = 10 * time.Millisecond
+	w.OnBeacon = func(_ int, success bool, _ error) { results <- success }
+	require.NoError(t, w.Start(context.Background(), model.Channel{Login: "test"}))
+	for i := 1; i < maxConsecutiveFailures; i++ {
+		select {
+		case ok := <-results:
+			require.False(t, ok)
+		case <-time.After(time.Second):
+			t.Fatal("missing failed cycle")
+		}
+	}
+	select {
+	case ok := <-results:
+		require.True(t, ok, "watcher must keep going after transient failures")
+	case <-w.Done():
+		t.Fatalf("watcher terminated on transient failures: %v", w.Err())
+	case <-time.After(time.Second):
+		t.Fatal("no recovery cycle")
+	}
+	require.NoError(t, w.Err())
+}
+
+func TestWatcher_OfflineTerminatesImmediately(t *testing.T) {
+	var tokens atomic.Int32
+	w := lifecycleWatcher(t, func(rw http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			tokens.Add(1)
+			rw.Header().Set("Content-Type", "application/json")
+			io.WriteString(rw, `{"data":{"streamPlaybackAccessToken":{"value":"fake","signature":"fake"}}}`)
+			return
+		}
+		rw.WriteHeader(http.StatusNotFound)
+	})
+	w.interval = 10 * time.Millisecond
+	require.NoError(t, w.Start(context.Background(), model.Channel{Login: "test"}))
+	select {
+	case <-w.Done():
+	case <-time.After(time.Second):
+		t.Fatal("offline stream must end the watcher")
+	}
+	require.ErrorIs(t, w.Err(), ErrStreamOffline)
+	require.Equal(t, int32(2), tokens.Load(), "offline is terminal after the single refresh attempt")
+}
+
+func TestWatcher_StopLeavesNoError(t *testing.T) {
+	w := lifecycleWatcher(t, func(rw http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost:
+			rw.Header().Set("Content-Type", "application/json")
+			io.WriteString(rw, `{"data":{"streamPlaybackAccessToken":{"value":"fake","signature":"fake"}}}`)
+		case strings.HasPrefix(r.URL.Path, "/api/"):
+			io.WriteString(rw, "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\n/media.m3u8\n")
+		case r.URL.Path == "/media.m3u8":
+			io.WriteString(rw, "#EXTM3U\n#EXTINF:2,\n/segment.ts\n")
+		case r.Method == http.MethodHead:
+			rw.WriteHeader(http.StatusOK)
+		}
+	})
+	require.NoError(t, w.Start(context.Background(), model.Channel{Login: "test"}))
+	w.Stop()
+	require.NoError(t, w.Err(), "cancellation is not a watcher failure")
 }
 
 func TestWatcher_RefreshesPlaybackAfterMediaExpiry(t *testing.T) {
@@ -143,4 +229,49 @@ func TestWatcher_SanitizeContextAndSignedURL(t *testing.T) {
 	require.NotContains(t, err.Error(), "secret")
 	require.NotContains(t, err.Error(), "private-signature")
 	require.True(t, errors.Is(err, context.Canceled))
+}
+
+func TestWatcher_TokenRefreshFailureIsTolerated(t *testing.T) {
+	var tokens, heads atomic.Int32
+	results := make(chan bool, 16)
+	w := lifecycleWatcher(t, func(rw http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost:
+			// Start's token succeeds; the first refresh fails; later refreshes succeed.
+			if tokens.Add(1) == 2 {
+				rw.Header().Set("Content-Type", "application/json")
+				io.WriteString(rw, `{"data":{"streamPlaybackAccessToken":null}}`)
+				return
+			}
+			rw.Header().Set("Content-Type", "application/json")
+			io.WriteString(rw, `{"data":{"streamPlaybackAccessToken":{"value":"fake","signature":"fake"}}}`)
+		case strings.HasPrefix(r.URL.Path, "/api/"):
+			io.WriteString(rw, "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\n/media.m3u8\n")
+		case r.URL.Path == "/media.m3u8":
+			io.WriteString(rw, "#EXTM3U\n#EXTINF:2,\n/segment.ts\n")
+		case r.Method == http.MethodHead:
+			if heads.Add(1) == 1 {
+				rw.WriteHeader(http.StatusForbidden)
+				return
+			}
+			rw.WriteHeader(http.StatusOK)
+		}
+	})
+	w.interval = 10 * time.Millisecond
+	w.OnBeacon = func(_ int, success bool, _ error) { results <- success }
+	require.NoError(t, w.Start(context.Background(), model.Channel{Login: "test"}))
+	select {
+	case ok := <-results:
+		require.False(t, ok, "first cycle fails: 403 then refresh error")
+	case <-time.After(2 * time.Second):
+		t.Fatal("missing failed cycle")
+	}
+	select {
+	case ok := <-results:
+		require.True(t, ok, "single refresh failure must not end the watcher")
+	case <-w.Done():
+		t.Fatalf("watcher terminated on one refresh failure: %v", w.Err())
+	case <-time.After(2 * time.Second):
+		t.Fatal("no recovery cycle")
+	}
 }

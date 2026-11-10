@@ -32,6 +32,9 @@ var (
 	// server that no longer reports progress for the tracked drop).
 	ErrNoProgress = errors.New("no drop progress within timeout window")
 
+	// ErrWatcherFailed indicates the HLS watcher gave up on the channel after repeated or terminal errors.
+	ErrWatcherFailed = errors.New("watcher stopped with error")
+
 	errSessionComplete = errors.New("session complete")
 )
 
@@ -251,10 +254,17 @@ func (s *WatchSession) Run(ctx context.Context, campaign inventory.DropsCampaign
 		case <-gctx.Done():
 			return nil
 		case <-s.watcher.Done():
-			if err := s.watcher.Err(); err != nil {
-				return fmt.Errorf("watcher stopped with error: %w", err)
+			if gctx.Err() != nil {
+				return nil
 			}
-			return errors.New("watcher stopped unexpectedly")
+			err := s.watcher.Err()
+			if errors.Is(err, channel.ErrStreamOffline) {
+				return fmt.Errorf("%w: %w", ErrChannelOffline, err)
+			}
+			if err != nil {
+				return fmt.Errorf("%w: %w", ErrWatcherFailed, err)
+			}
+			return fmt.Errorf("%w: stopped unexpectedly", ErrWatcherFailed)
 		}
 	})
 

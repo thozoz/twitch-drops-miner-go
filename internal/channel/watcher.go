@@ -19,12 +19,24 @@ import (
 const (
 	defaultWatchInterval = 20 * time.Second
 	maxPlaylistBodyBytes = 1024 * 1024 // 1MB
+	// maxConsecutiveFailures bounds how many non-terminal cycle failures in a row are tolerated.
+	maxConsecutiveFailures = 3
 )
 
 var (
 	ErrStreamOffline   = errors.New("stream is offline or playlist not found")
 	ErrTerminalWatcher = errors.New("watcher encountered a terminal error")
 )
+
+// HTTPStatusError reports a non-2xx HLS response without exposing the signed URL.
+type HTTPStatusError struct {
+	Op   string
+	Code int
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("%s returned HTTP %d", e.Op, e.Code)
+}
 
 // Watcher manages a single-channel HLS HEAD beacon loop.
 type Watcher struct {
@@ -159,6 +171,7 @@ func (w *Watcher) loop(ctx context.Context, ch model.Channel, tokenVal, tokenSig
 	defer stopTicker()
 
 	seq := 1
+	failures := 0
 	for {
 		if ctx.Err() != nil {
 			return
@@ -178,7 +191,8 @@ func (w *Watcher) loop(ctx context.Context, ch model.Channel, tokenVal, tokenSig
 					tokenSig = newSig
 					mediaURL, cycleErr = w.watchCycle(ctx, ch, tokenVal, tokenSig, "")
 				} else {
-					cycleErr = fmt.Errorf("%w: playback token refresh failed: %v", ErrTerminalWatcher, rerr)
+					// Not terminal: a transient GQL blip counts toward maxConsecutiveFailures.
+					cycleErr = fmt.Errorf("playback token refresh failed: %w", rerr)
 				}
 			}
 		}
@@ -191,8 +205,13 @@ func (w *Watcher) loop(ctx context.Context, ch model.Channel, tokenVal, tokenSig
 		w.notifyBeacon(seq, success, cycleErr)
 
 		if cycleErr != nil {
-			w.setErr(cycleErr)
-			return
+			failures++
+			if isTerminalWatchError(cycleErr) || failures >= maxConsecutiveFailures {
+				w.setErr(cycleErr)
+				return
+			}
+		} else {
+			failures = 0
 		}
 
 		seq++
@@ -290,11 +309,8 @@ func (w *Watcher) fetchPlaylistBody(ctx context.Context, targetURL string) (stri
 	if resp.StatusCode == http.StatusNotFound {
 		return "", nil, ErrStreamOffline
 	}
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return "", nil, fmt.Errorf("playlist forbidden (%d)", resp.StatusCode)
-	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", nil, fmt.Errorf("playlist HTTP %d", resp.StatusCode)
+		return "", nil, &HTTPStatusError{Op: "playlist", Code: resp.StatusCode}
 	}
 
 	lr := io.LimitReader(resp.Body, maxPlaylistBodyBytes+1)
@@ -315,7 +331,6 @@ func (w *Watcher) headSegment(ctx context.Context, segURL string) error {
 		return sanitizeErr(err)
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0")
-	req.Header.Set("Connection", "close")
 
 	resp, err := w.hlsClient.Do(req)
 	if err != nil {
@@ -324,7 +339,7 @@ func (w *Watcher) headSegment(ctx context.Context, segURL string) error {
 	resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("segment HEAD returned HTTP %d", resp.StatusCode)
+		return &HTTPStatusError{Op: "segment HEAD", Code: resp.StatusCode}
 	}
 	return nil
 }
@@ -347,8 +362,16 @@ func isRefreshableMediaError(err error) bool {
 	if errors.Is(err, ErrStreamOffline) {
 		return true
 	}
-	msg := err.Error()
-	return strings.Contains(msg, "404") || strings.Contains(msg, "403") || strings.Contains(msg, "401")
+	var se *HTTPStatusError
+	if errors.As(err, &se) {
+		return se.Code == http.StatusNotFound || se.Code == http.StatusForbidden || se.Code == http.StatusUnauthorized
+	}
+	return false
+}
+
+// isTerminalWatchError: offline and explicit terminal errors end the loop at once; others are tolerated.
+func isTerminalWatchError(err error) bool {
+	return errors.Is(err, ErrStreamOffline) || errors.Is(err, ErrTerminalWatcher)
 }
 
 func drainTicker(c <-chan time.Time) {

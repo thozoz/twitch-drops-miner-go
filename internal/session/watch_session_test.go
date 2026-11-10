@@ -948,40 +948,91 @@ func TestWatchSession_WatcherTerminalErrorExitsSession(t *testing.T) {
 	defer httpServer.Close()
 	defer wsServer.Close()
 
+	// Same mock backend, but the master playlist exceeds the 1MB cap: a terminal, non-offline watcher error.
+	oversized := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/channel/hls/") {
+			_, _ = w.Write([]byte(strings.Repeat("a", 1024*1024+1)))
+			return
+		}
+		httpServer.Config.Handler.ServeHTTP(w, r)
+	}))
+	defer oversized.Close()
+
 	reg, _, err := gql.LoadRegistry("")
 	require.NoError(t, err)
 
 	ident := &mockIdentity{token: "mock_token"}
-	httpClient := resty.NewWithClient(httpServer.Client()).SetHostURL(httpServer.URL)
+	httpClient := resty.NewWithClient(oversized.Client()).SetHostURL(oversized.URL)
 	gqlClient := gql.NewClient(reg, ident, ident, httpClient, gql.WithMinRetryDelay(1*time.Millisecond))
 	watcher := channel.NewWatcher(gqlClient, httpClient, ident, 12345)
-
-	session := NewWatchSession(gqlClient, watcher, nil, 12345, nil, WithReconcileInterval(50*time.Millisecond))
+	session := NewWatchSession(gqlClient, watcher, nil, 12345, nil,
+		WithStatePath(filepath.Join(t.TempDir(), "state.json")),
+		WithReconcileInterval(50*time.Millisecond))
 
 	game := model.NewGame("game-1", "Test Game", "test-game")
-	ch := model.Channel{
-		ID:           "ch_offline",
-		Login:        "offline_channel_terminal",
-		BroadcastID:  "bcast_offline",
-		Online:       true,
-		Game:         &game,
-		DropsEnabled: true,
-	}
-
+	ch := model.Channel{ID: "ch_1", Login: "terminal_channel", BroadcastID: "bcast_1", Online: true, Game: &game, DropsEnabled: true}
 	drop := inventory.TimedDrop{
 		ID:              "drop-1",
 		Name:            "Tier 1 Reward",
 		RequiredMinutes: 10,
-		CurrentMinutes:  0,
 		StartsAt:        time.Now().Add(-1 * time.Hour),
 		EndsAt:          time.Now().Add(24 * time.Hour),
+		Benefits:        []inventory.Benefit{{ID: "b-1", Name: "Reward 1", Type: inventory.BenefitBadge}},
 	}
-	camp := buildTestCampaign(game, drop)
 
-	// When Start runs, PlaybackAccessToken will fail or 404 in loop
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	err = session.Run(ctx, camp, ch)
-	require.Error(t, err, "session must terminate when watcher fails terminally")
+	err = session.Run(ctx, buildTestCampaign(game, drop), ch)
+	require.ErrorIs(t, err, ErrWatcherFailed, "terminal watcher error must surface as ErrWatcherFailed")
+	require.ErrorIs(t, err, channel.ErrTerminalWatcher)
+	require.NotErrorIs(t, err, ErrNoEarnableDrop, "the drop is earnable; the session must reach the watcher")
+	require.NotErrorIs(t, err, ErrChannelOffline)
+	require.NoError(t, ctx.Err(), "session must end on the watcher error, not on timeout")
+}
+
+func TestWatchSession_WatcherOfflineMapsToChannelOffline(t *testing.T) {
+	httpServer, wsServer, _ := setupMockServers(t)
+	defer httpServer.Close()
+	defer wsServer.Close()
+
+	// Same mock backend, but the usher master playlist reports the stream offline.
+	offline := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/channel/hls/") {
+			http.NotFound(w, r)
+			return
+		}
+		httpServer.Config.Handler.ServeHTTP(w, r)
+	}))
+	defer offline.Close()
+
+	reg, _, err := gql.LoadRegistry("")
+	require.NoError(t, err)
+
+	ident := &mockIdentity{token: "mock_token"}
+	httpClient := resty.NewWithClient(offline.Client()).SetHostURL(offline.URL)
+	gqlClient := gql.NewClient(reg, ident, ident, httpClient, gql.WithMinRetryDelay(1*time.Millisecond))
+	watcher := channel.NewWatcher(gqlClient, httpClient, ident, 12345)
+	session := NewWatchSession(gqlClient, watcher, nil, 12345, nil,
+		WithStatePath(filepath.Join(t.TempDir(), "state.json")),
+		WithReconcileInterval(50*time.Millisecond))
+
+	game := model.NewGame("game-1", "Test Game", "test-game")
+	ch := model.Channel{ID: "ch_1", Login: "gone_offline", BroadcastID: "bcast_1", Online: true, Game: &game, DropsEnabled: true}
+	drop := inventory.TimedDrop{
+		ID:              "drop-1",
+		Name:            "Tier 1 Reward",
+		RequiredMinutes: 10,
+		StartsAt:        time.Now().Add(-1 * time.Hour),
+		EndsAt:          time.Now().Add(24 * time.Hour),
+		Benefits:        []inventory.Benefit{{ID: "b-1", Name: "Reward 1", Type: inventory.BenefitBadge}},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err = session.Run(ctx, buildTestCampaign(game, drop), ch)
+	require.ErrorIs(t, err, ErrChannelOffline, "a stream going offline is expected, not a watcher failure")
+	require.NotErrorIs(t, err, ErrWatcherFailed)
+	require.NoError(t, ctx.Err(), "session must end on offline, not on timeout")
 }
