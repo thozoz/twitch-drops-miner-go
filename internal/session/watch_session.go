@@ -9,13 +9,13 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/sync/errgroup"
 	"github.com/thozoz/twitch-drops-miner-go/internal/channel"
 	"github.com/thozoz/twitch-drops-miner-go/internal/gql"
 	"github.com/thozoz/twitch-drops-miner-go/internal/inventory"
 	"github.com/thozoz/twitch-drops-miner-go/internal/model"
 	"github.com/thozoz/twitch-drops-miner-go/internal/pubsub"
 	"github.com/thozoz/twitch-drops-miner-go/internal/state"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -31,6 +31,9 @@ var (
 	// when an earnable drop exists but the stream stops advancing it (e.g. a stale dropID or a
 	// server that no longer reports progress for the tracked drop).
 	ErrNoProgress = errors.New("no drop progress within timeout window")
+
+	// ErrWatcherFailed indicates the HLS watcher gave up on the channel after repeated or terminal errors.
+	ErrWatcherFailed = errors.New("watcher stopped with error")
 
 	errSessionComplete = errors.New("session complete")
 )
@@ -245,6 +248,26 @@ func (s *WatchSession) Run(ctx context.Context, campaign inventory.DropsCampaign
 
 	g, gctx := errgroup.WithContext(ctx)
 
+	// Watcher loop monitoring: exit session if watcher terminates
+	g.Go(func() error {
+		select {
+		case <-gctx.Done():
+			return nil
+		case <-s.watcher.Done():
+			if gctx.Err() != nil {
+				return nil
+			}
+			err := s.watcher.Err()
+			if errors.Is(err, channel.ErrStreamOffline) {
+				return fmt.Errorf("%w: %w", ErrChannelOffline, err)
+			}
+			if err != nil {
+				return fmt.Errorf("%w: %w", ErrWatcherFailed, err)
+			}
+			return fmt.Errorf("%w: stopped unexpectedly", ErrWatcherFailed)
+		}
+	})
+
 	if s.pubsubClient != nil {
 		g.Go(func() error {
 			err := s.pubsubClient.Run(gctx)
@@ -288,7 +311,7 @@ func (s *WatchSession) Run(ctx context.Context, campaign inventory.DropsCampaign
 					return ErrNoProgress
 				}
 
-				dropID, currentMinutes, ok, err := inventory.FetchCurrentDropProgress(gctx, s.gqlClient, ch.ID)
+				dropID, currentMinutes, ok, err := inventory.FetchCurrentDropProgress(gctx, s.gqlClient, ch.Login)
 				if err != nil {
 					s.logger.Warn("failed to fetch current drop progress via GQL", "error", err)
 				} else if ok {
@@ -296,8 +319,9 @@ func (s *WatchSession) Run(ctx context.Context, campaign inventory.DropsCampaign
 					var shouldClaim bool
 					var changed bool
 					if s.activeDrop != nil && s.activeDrop.ID == dropID {
+						prevMinutes := s.activeDrop.CurrentMinutes
 						changed = inventory.ReconcileMinutes(s.activeDrop, currentMinutes, s.logger)
-						if changed {
+						if changed && s.activeDrop.CurrentMinutes > prevMinutes {
 							s.lastProgressAt = time.Now()
 						}
 						if s.activeDrop.CurrentMinutes >= s.activeDrop.RequiredMinutes {
@@ -372,8 +396,9 @@ func (s *WatchSession) Run(ctx context.Context, campaign inventory.DropsCampaign
 							if payload.DropInstanceID != "" {
 								s.activeDrop.ClaimID = payload.DropInstanceID
 							}
+							prevMinutes := s.activeDrop.CurrentMinutes
 							changed = inventory.ReconcileMinutes(s.activeDrop, payload.CurrentProgressMin, s.logger)
-							if changed {
+							if changed && s.activeDrop.CurrentMinutes > prevMinutes {
 								s.lastProgressAt = time.Now()
 							}
 							if s.activeDrop.CurrentMinutes >= s.activeDrop.RequiredMinutes {
@@ -517,7 +542,7 @@ func (s *WatchSession) claimAndAdvance(ctx context.Context, campaign *inventory.
 	}
 
 	for i := 0; i < s.confirmRetries; i++ {
-		dropID, _, ok, err := inventory.FetchCurrentDropProgress(ctx, s.gqlClient, ch.ID)
+		dropID, _, ok, err := inventory.FetchCurrentDropProgress(ctx, s.gqlClient, ch.Login)
 		if err == nil && (!ok || dropID != activeDrop.ID) {
 			break
 		}

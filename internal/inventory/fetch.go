@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/thozoz/twitch-drops-miner-go/internal/gql"
@@ -68,7 +66,7 @@ func SplitEligible(campaigns []DropsCampaign, enableBadgesEmotes bool) (eligible
 			continue
 		}
 		reason := SkipReasonUnlinked
-		if c.HasBadgeOrEmote() {
+		if c.HasBadgeOrEmote() && !enableBadgesEmotes {
 			reason = SkipReasonBadgeOrEmote
 		}
 		skipped = append(skipped, SkippedCampaign{DropsCampaign: c, Reason: reason})
@@ -298,11 +296,6 @@ func parseRawCampaign(rc rawCampaign, claimedBenefits map[string]time.Time, logg
 	if rc.Self != nil {
 		linked = rc.Self.IsAccountConnected
 	}
-	// Special Events and Twitch-native campaigns (badges, emotes, twitch.tv links) do not
-	// require external 3rd-party game publisher account linking.
-	if !linked && (game.IsSpecial() || game.Name == "Special Events" || isTwitchNativeLink(rc.AccountLinkURL)) {
-		linked = true
-	}
 
 	var allowedChannels []model.Channel
 	if rc.Allow != nil && (rc.Allow.IsEnabled == nil || *rc.Allow.IsEnabled) {
@@ -381,6 +374,11 @@ func parseRawCampaign(rc rawCampaign, claimedBenefits map[string]time.Time, logg
 		})
 	}
 
+	// A missing or Twitch-hosted link is not evidence of publisher-account linkage.
+	if game.IsSpecial() || game.Name == "Special Events" || (DropsCampaign{Drops: drops}).OnlyBadgeOrEmote() {
+		linked = true
+	}
+
 	return DropsCampaign{
 		ID:              rc.ID,
 		Name:            rc.Name,
@@ -393,19 +391,4 @@ func parseRawCampaign(rc rawCampaign, claimedBenefits map[string]time.Time, logg
 		AllowedChannels: allowedChannels,
 		Drops:           drops,
 	}, true
-}
-
-func isTwitchNativeLink(rawURL string) bool {
-	if rawURL == "" {
-		return true
-	}
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return false
-	}
-	host := strings.ToLower(u.Hostname())
-	if host == "id.twitch.tv" || strings.HasPrefix(u.Path, "/oauth2") {
-		return false
-	}
-	return host == "twitch.tv" || strings.HasSuffix(host, ".twitch.tv")
 }

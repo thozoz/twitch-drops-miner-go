@@ -107,15 +107,39 @@ func (c DropsCampaign) HasBadgeOrEmote() bool {
 	return false
 }
 
-// Eligible reports whether the campaign can be mined. A linked account is
-// always required; a campaign whose rewards are exclusively badges/emotes is
-// additionally gated behind enableBadgesEmotes, so operators must opt in
-// before such campaigns enter the mining candidate pool.
-func (c DropsCampaign) Eligible(enableBadgesEmotes bool) bool {
-	if c.HasBadgeOrEmote() {
-		return enableBadgesEmotes
+// OnlyBadgeOrEmote requires non-empty, exclusively native benefits.
+func (d TimedDrop) OnlyBadgeOrEmote() bool {
+	if len(d.Benefits) == 0 {
+		return false
 	}
-	return c.Linked
+	for _, b := range d.Benefits {
+		if !b.Type.IsBadgeOrEmote() {
+			return false
+		}
+	}
+	return true
+}
+
+// OnlyBadgeOrEmote identifies campaigns whose known rewards need no publisher account.
+func (c DropsCampaign) OnlyBadgeOrEmote() bool {
+	if len(c.Drops) == 0 {
+		return false
+	}
+	for _, d := range c.Drops {
+		if !d.OnlyBadgeOrEmote() {
+			return false
+		}
+	}
+	return true
+}
+
+// Eligible requires account linkage for game rewards. Badge/emote campaigns
+// require opt-in; only exclusively native rewards can bypass publisher linkage.
+func (c DropsCampaign) Eligible(enableBadgesEmotes bool) bool {
+	if c.HasBadgeOrEmote() && !enableBadgesEmotes {
+		return false
+	}
+	return c.Linked || c.OnlyBadgeOrEmote()
 }
 
 // Active reports whether the campaign is valid and currently running.

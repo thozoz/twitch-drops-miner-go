@@ -27,6 +27,17 @@ func WithReselectBackoff(d time.Duration) SupervisorOption {
 	}
 }
 
+// defaultIdleBackoff is the production wait after a full selection pass found nothing to watch.
+const defaultIdleBackoff = 60 * time.Second
+
+// WithIdleBackoff overrides the wait after a selection pass yields no watchable campaign.
+// Zero (the NewSupervisor default) falls back to the reselect backoff.
+func WithIdleBackoff(d time.Duration) SupervisorOption {
+	return func(s *Supervisor) {
+		s.idleBackoff = d
+	}
+}
+
 // WithWatchRunner injects the runner function executed for each active watch session.
 func WithWatchRunner(fn func(ctx context.Context, campaign inventory.DropsCampaign, ch model.Channel) (*inventory.TimedDrop, error)) SupervisorOption {
 	return func(s *Supervisor) {
@@ -85,8 +96,12 @@ type Supervisor struct {
 	runWatch        func(ctx context.Context, campaign inventory.DropsCampaign, ch model.Channel) (*inventory.TimedDrop, error)
 	logger          *slog.Logger
 	reselectBackoff time.Duration
+	idleBackoff     time.Duration
 	startedAt       time.Time
 	configPath      string
+
+	// channelCooldown tracks channels that yielded ErrNoProgress to temporarily avoid reselecting them
+	channelCooldown map[string]time.Time
 
 	// enableBadgesEmotes mirrors the enable_badges_emotes config setting at the
 	// moment the daemon started. Unlike priority/exclude it is never mutated
@@ -101,9 +116,11 @@ type Supervisor struct {
 	exclude     []string
 	dropExclude []string
 
-	statusMu   sync.RWMutex
-	status     ipc.StatusResult
-	errorCount int
+	statusMu          sync.RWMutex
+	status            ipc.StatusResult
+	errorCount        int
+	progressDropID    string
+	progressHighWater int
 }
 
 // NewSupervisor creates a Supervisor with injected fetch and resolve closures.
@@ -192,12 +209,37 @@ func NewProductionSupervisor(
 	}
 
 	resolveChannel := func(ctx context.Context, c inventory.DropsCampaign, dropExclude ...string) (*model.Channel, error) {
-		return inventory.ResolveChannel(ctx, gqlClient, c, dropExclude...)
+		return inventory.ResolveChannelWithCooldown(ctx, gqlClient, c, s.isChannelCooled, dropExclude...)
 	}
 
-	allOpts := append([]SupervisorOption{WithEnableBadgesEmotes(enableBadgesEmotes)}, opts...)
+	allOpts := append([]SupervisorOption{
+		WithEnableBadgesEmotes(enableBadgesEmotes),
+		WithIdleBackoff(defaultIdleBackoff),
+	}, opts...)
 	s = NewSupervisor(fetchInventory, resolveChannel, logger, priority, exclude, allOpts...)
 	return s
+}
+
+func (s *Supervisor) isChannelCooled(login string) bool {
+	if s.channelCooldown == nil {
+		return false
+	}
+	until, ok := s.channelCooldown[login]
+	if !ok {
+		return false
+	}
+	if time.Now().After(until) {
+		delete(s.channelCooldown, login)
+		return false
+	}
+	return true
+}
+
+func (s *Supervisor) coolChannel(login string, d time.Duration) {
+	if s.channelCooldown == nil {
+		s.channelCooldown = make(map[string]time.Time)
+	}
+	s.channelCooldown[login] = time.Now().Add(d)
 }
 
 // Run runs the supervisor loop: select campaign -> resolve channel -> watch -> repeat.
@@ -231,62 +273,86 @@ func (s *Supervisor) Run(ctx context.Context) error {
 		dropExclude := append([]string(nil), s.dropExclude...)
 		s.priorityMu.RUnlock()
 
-		selected := inventory.SelectCampaign(eligible, priority, exclude, time.Now(), s.enableBadgesEmotes, dropExclude...)
-		if selected == nil {
-			s.statusMu.Lock()
-			s.status = ipc.StatusResult{
-				Status:       "idle",
-				LastSyncTime: time.Now(),
-			}
-			s.statusMu.Unlock()
+		candidates := append([]inventory.DropsCampaign(nil), eligible...)
+		var (
+			selectedCampaign *inventory.DropsCampaign
+			selectedChannel  *model.Channel
+			initialDrop      *inventory.TimedDrop
+			firstAttempted   *inventory.DropsCampaign
+		)
 
-			if !s.sleep(ctx, s.reselectBackoff) {
+		for len(candidates) > 0 {
+			if ctx.Err() != nil {
 				return nil
 			}
-			continue
-		}
 
-		ch, err := s.resolveChannel(ctx, *selected, dropExclude...)
-		if err != nil || ch == nil {
+			pick := inventory.SelectCampaign(candidates, priority, exclude, time.Now(), s.enableBadgesEmotes, dropExclude...)
+			if pick == nil {
+				break
+			}
+			if firstAttempted == nil {
+				firstAttempted = pick
+			}
+
+			// Remove attempted campaign from this pass's candidates
+			n := 0
+			for _, c := range candidates {
+				if c.ID != pick.ID {
+					candidates[n] = c
+					n++
+				}
+			}
+			candidates = candidates[:n]
+
+			ch, err := s.resolveChannel(ctx, *pick, dropExclude...)
+			if ctx.Err() != nil {
+				return nil
+			}
 			if err != nil {
-				s.logger.Warn("failed to resolve channel for selected campaign", "campaign", selected.Name, "error", err)
+				s.logger.Warn("failed to resolve channel for selected campaign", "campaign", pick.Name, "error", err)
 				s.statusMu.Lock()
 				s.errorCount++
 				s.statusMu.Unlock()
-			} else {
-				s.logger.Info("no live channel found for campaign", "campaign", selected.Name, "game", selected.Game.Name)
+				continue
 			}
-			s.statusMu.Lock()
-			s.status = ipc.StatusResult{
-				Status:         "idle",
-				ActiveCampaign: selected.Name,
-				ActiveGame:     selected.Game.Name,
-				LastSyncTime:   time.Now(),
+			if ch == nil {
+				s.logger.Info("no live channel found for campaign", "campaign", pick.Name, "game", pick.Game.Name)
+				continue
 			}
-			s.statusMu.Unlock()
 
-			if !s.sleep(ctx, s.reselectBackoff) {
-				return nil
+			drop, ok := pick.FirstEarnableDrop(time.Now(), ch, dropExclude...)
+			if !ok || drop == nil {
+				s.logger.Info("selected campaign has no earnable drop on resolved channel",
+					"campaign", pick.Name,
+					"game", pick.Game.Name,
+					"channel", ch.Name())
+				continue
 			}
-			continue
+
+			selectedCampaign = pick
+			selectedChannel = ch
+			initialDrop = drop
+			break
 		}
 
-		initialDrop, ok := selected.FirstEarnableDrop(time.Now(), ch, dropExclude...)
-		if !ok || initialDrop == nil {
-			s.logger.Info("selected campaign has no earnable drop on resolved channel",
-				"campaign", selected.Name,
-				"game", selected.Game.Name,
-				"channel", ch.Name())
+		if selectedCampaign == nil {
 			s.statusMu.Lock()
-			s.status = ipc.StatusResult{
-				Status:         "idle",
-				ActiveCampaign: selected.Name,
-				ActiveGame:     selected.Game.Name,
-				LastSyncTime:   time.Now(),
+			st := ipc.StatusResult{
+				Status:       "idle",
+				LastSyncTime: time.Now(),
 			}
+			if firstAttempted != nil {
+				st.ActiveCampaign = firstAttempted.Name
+				st.ActiveGame = firstAttempted.Game.Name
+			}
+			s.status = st
 			s.statusMu.Unlock()
 
-			if !s.sleep(ctx, s.reselectBackoff) {
+			idle := s.idleBackoff
+			if idle == 0 {
+				idle = s.reselectBackoff
+			}
+			if !s.sleep(ctx, idle) {
 				return nil
 			}
 			continue
@@ -294,33 +360,48 @@ func (s *Supervisor) Run(ctx context.Context) error {
 
 		s.statusMu.Lock()
 		s.status = ipc.StatusResult{
-			Status:          "watching",
-			ActiveCampaign:  selected.Name,
-			ActiveGame:      selected.Game.Name,
-			WatchingChannel: ch.Name(),
-			ActiveDrop:      initialDrop.Name,
-			CurrentMinutes:  initialDrop.CurrentMinutes,
-			RequiredMinutes: initialDrop.RequiredMinutes,
-			ProgressPercent: initialDrop.Progress() * 100,
-			ETASeconds:      int64(initialDrop.RemainingMinutes()) * 60,
-			LastSyncTime:    time.Now(),
+			Status:           "watching",
+			ActiveCampaign:   selectedCampaign.Name,
+			ActiveGame:       selectedCampaign.Game.Name,
+			WatchingChannel:  selectedChannel.Name(),
+			ActiveDrop:       initialDrop.Name,
+			CurrentMinutes:   initialDrop.CurrentMinutes,
+			RequiredMinutes:  initialDrop.RequiredMinutes,
+			ProgressPercent:  initialDrop.Progress() * 100,
+			ETASeconds:       int64(initialDrop.RemainingMinutes()) * 60,
+			LastSyncTime:     time.Now(),
+			LastProgressTime: time.Now(),
 		}
+		s.progressDropID = initialDrop.ID
+		s.progressHighWater = initialDrop.CurrentMinutes
 		s.statusMu.Unlock()
 
-		drop, runErr := s.runWatch(ctx, *selected, *ch)
+		drop, runErr := s.runWatch(ctx, *selectedCampaign, *selectedChannel)
 		if ctx.Err() != nil {
 			return nil
 		}
 
-		if runErr != nil && !errors.Is(runErr, session.ErrChannelOffline) && !errors.Is(runErr, session.ErrNoEarnableDrop) && !errors.Is(runErr, session.ErrNoProgress) {
+		if runErr != nil && !errors.Is(runErr, session.ErrChannelOffline) && !errors.Is(runErr, session.ErrNoEarnableDrop) {
 			s.logger.Error("watch session error", "error", runErr)
 			s.statusMu.Lock()
 			s.errorCount++
 			s.statusMu.Unlock()
 		}
 
+		if errors.Is(runErr, session.ErrNoProgress) || errors.Is(runErr, session.ErrWatcherFailed) {
+			s.logger.Warn("abandoning channel, placing into temporary cooldown", "channel", selectedChannel.Name(), "reason", runErr)
+			s.coolChannel(selectedChannel.Login, 10*time.Minute)
+		}
+
+		if runErr != nil {
+			s.statusMu.Lock()
+			s.status.Status = "retrying"
+			s.statusMu.Unlock()
+		}
+
 		if drop != nil {
 			s.statusMu.Lock()
+			s.recordProgressLocked(drop)
 			s.status.ActiveDrop = drop.Name
 			s.status.CurrentMinutes = drop.CurrentMinutes
 			s.status.RequiredMinutes = drop.RequiredMinutes
@@ -351,6 +432,9 @@ func (s *Supervisor) Status(ctx context.Context) (ipc.StatusResult, error) {
 	defer s.statusMu.RUnlock()
 
 	st := s.status
+	if st.Status == "watching" && !st.LastProgressTime.IsZero() && time.Since(st.LastProgressTime) >= 5*time.Minute {
+		st.Status = "stalled"
+	}
 	if st.Status == "" {
 		st.Status = "starting"
 	}
@@ -547,6 +631,22 @@ func removeGames(list, drop []string) []string {
 	return out
 }
 
+// recordProgressLocked ignores repeated/decreasing samples; a new drop gets a grace window.
+func (s *Supervisor) recordProgressLocked(drop *inventory.TimedDrop) {
+	if s.progressDropID == "" {
+		s.progressDropID = drop.ID
+		s.progressHighWater = s.status.CurrentMinutes
+	}
+	if s.progressDropID != drop.ID {
+		s.progressDropID = drop.ID
+		s.progressHighWater = drop.CurrentMinutes
+		s.status.LastProgressTime = time.Now()
+	} else if drop.CurrentMinutes > s.progressHighWater {
+		s.progressHighWater = drop.CurrentMinutes
+		s.status.LastProgressTime = time.Now()
+	}
+}
+
 // UpdateDropProgress updates the live active drop progress in the supervisor status.
 func (s *Supervisor) UpdateDropProgress(drop *inventory.TimedDrop) {
 	if drop == nil {
@@ -554,6 +654,7 @@ func (s *Supervisor) UpdateDropProgress(drop *inventory.TimedDrop) {
 	}
 	s.statusMu.Lock()
 	defer s.statusMu.Unlock()
+	s.recordProgressLocked(drop)
 	s.status.ActiveDrop = drop.Name
 	s.status.CurrentMinutes = drop.CurrentMinutes
 	s.status.RequiredMinutes = drop.RequiredMinutes
