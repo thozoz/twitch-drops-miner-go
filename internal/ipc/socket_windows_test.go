@@ -75,7 +75,15 @@ func TestBind_StaleSocketReplaced(t *testing.T) {
 	defer cancel()
 	clientConn, err := DialClient(ctx, addr, time.Second)
 	require.NoError(t, err)
-	require.NoError(t, clientConn.Close())
+	// Keep the client open until Accept returns: go-winio drops a pipe whose
+	// client disconnected before ConnectNamedPipe completed (ERROR_NO_DATA),
+	// leaving Accept blocked forever.
+	defer func() { _ = clientConn.Close() }()
 
-	require.NoError(t, <-errCh)
+	select {
+	case err := <-errCh:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Accept did not return")
+	}
 }
